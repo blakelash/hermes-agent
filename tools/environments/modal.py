@@ -16,6 +16,7 @@ import base64
 import concurrent.futures
 import io
 import logging
+import os
 import shlex
 import tarfile
 from pathlib import Path
@@ -40,6 +41,32 @@ logger = logging.getLogger(__name__)
 
 _SNAPSHOT_STORE = get_hermes_home() / "modal_snapshots.json"
 _DIRECT_SNAPSHOT_NAMESPACE = "direct"
+
+
+def _collect_passthrough_env() -> dict[str, str]:
+    """Return host env vars that are allowlisted for sandbox passthrough.
+
+    Reuses the session-scoped allowlist from :mod:`tools.env_passthrough`
+    (skill ``required_environment_variables`` + the ``terminal.env_passthrough``
+    config list). Only names present in the host environment are forwarded.
+
+    The allowlist already refuses Hermes-managed provider credentials (per
+    ``_HERMES_PROVIDER_ENV_BLOCKLIST`` / GHSA-rhgp-j443-p4rf), so this never
+    ships the agent's own API keys to the sandbox; third-party keys such as
+    ``NOTION_API_KEY`` pass through normally once allowlisted.
+    """
+    try:
+        from tools.env_passthrough import get_all_passthrough
+    except Exception as e:
+        logger.debug("Modal: could not load env passthrough allowlist: %s", e)
+        return {}
+
+    forwarded: dict[str, str] = {}
+    for name in get_all_passthrough():
+        value = os.environ.get(name)
+        if value is not None:
+            forwarded[name] = value
+    return forwarded
 
 
 def _load_snapshots() -> dict:
@@ -236,6 +263,13 @@ class ModalEnvironment(BaseEnvironment):
         except Exception as e:
             logger.debug("Modal: could not load credential file mounts: %s", e)
 
+        forwarded_env = _collect_passthrough_env()
+        if forwarded_env:
+            logger.debug(
+                "Modal: forwarding %d allowlisted env var(s) to sandbox: %s",
+                len(forwarded_env), ", ".join(sorted(forwarded_env)),
+            )
+
         def _create_sandbox(image_spec: Any):
             app = _modal.App.lookup("hermes-agent", create_if_missing=True)
             create_kwargs = dict(sandbox_kwargs)
@@ -243,6 +277,10 @@ class ModalEnvironment(BaseEnvironment):
                 existing_mounts = list(create_kwargs.pop("mounts", []))
                 existing_mounts.extend(cred_mounts)
                 create_kwargs["mounts"] = existing_mounts
+            if forwarded_env:
+                existing_secrets = list(create_kwargs.pop("secrets", []))
+                existing_secrets.append(_modal.Secret.from_dict(forwarded_env))
+                create_kwargs["secrets"] = existing_secrets
             sandbox = _modal.Sandbox.create(
                 "sleep", "infinity",
                 image=image_spec,
