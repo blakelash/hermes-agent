@@ -1,0 +1,62 @@
+# fly.toml — Hermes Agent (persistent scientific co-collaborator)
+# Phase 1: always-on gateway + kanban dispatcher. No public ports
+# (Telegram uses outbound long-polling). State persists on a Fly Volume
+# mounted at /opt/data (= HERMES_HOME). Secrets come from `fly secrets`,
+# NOT this file and NOT the image.
+#
+# Change `app` and `primary_region` to taste, then:
+#   fly auth login
+#   fly apps create <app>            # or: fly launch --no-deploy --copy-config
+#   fly volumes create hermes_data --region <region> --size 10
+#   fly secrets set ANTHROPIC_API_KEY=... OPENAI_API_KEY=... GOOGLE_API_KEY=... EXA_API_KEY=...
+#   fly deploy
+
+app = "hermes-collab"
+primary_region = "iad"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Fly runs the container entrypoint as a CHILD of its own init, so the
+# image's s6-overlay /init aborts with "s6-overlay-suexec: can only run as
+# pid 1" and the machine crash-loops. We bypass s6 and run directly.
+#
+# PROD: run supervisord (bypassing the image's s6 /init, which can't be PID 1
+# on Fly) to supervise TWO long-lived processes — the gateway (+ in-process
+# kanban dispatcher) and the dashboard (the HTTP control plane the desktop app
+# attaches to over the [http_service] below). chown fixes the volume perms
+# s6's cont-init would handle; then supervisord (as root) drops each child to
+# uid 10000 and sets HOME=/opt/data per child (see docker/supervisord.fly.conf).
+# supervisord adds per-process restart-on-crash, which Fly's own init does not.
+# (Keep-alive variant for ssh/config debugging:
+#   ["/bin/sh","-c","chown -R 10000:10000 /opt/data 2>/dev/null || true; exec sleep infinity"])
+[experimental]
+  entrypoint = ["/bin/sh", "-c", "chown -R 10000:10000 /opt/data 2>/dev/null || true; exec /usr/bin/supervisord -c /opt/hermes/docker/supervisord.fly.conf"]
+
+# Public HTTPS for the dashboard. Fly terminates TLS on :443 and proxies to the
+# dashboard's internal bind (0.0.0.0:9119). Reachable at
+# https://hermes-collab.fly.dev — point the desktop app's Remote gateway here.
+# The dashboard's OAuth gate engages because the bind is non-loopback and
+# HERMES_DASHBOARD_OAUTH_CLIENT_ID is set (via `fly secrets`). No scale-to-zero:
+# auto_stop would drop the Telegram long-poll connection.
+[http_service]
+  internal_port = 9119
+  force_https = true
+  auto_stop_machines = false
+  auto_start_machines = false
+  min_machines_running = 1
+
+# Durable state. HERMES_HOME=/opt/data is set in the image; mounting the
+# volume there persists config.yaml, profiles/, memory, and kanban.db
+# across deploys and restarts.
+[mounts]
+  source = "hermes_data"
+  destination = "/opt/data"
+
+# Always-on brain: ~2GB RAM holds the gateway + a few concurrent kanban
+# worker subprocesses. No scale-to-zero (the gateway must stay warm to
+# hold the messaging connection and tick the dispatcher).
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"
+  cpus = 1
