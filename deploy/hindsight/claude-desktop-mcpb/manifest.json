@@ -1,0 +1,29 @@
+{
+  "manifest_version": "0.3",
+  "name": "hindsight-hermes",
+  "display_name": "Hindsight — Hermes shared memory",
+  "version": "1.0.0",
+  "description": "Shared long-term memory for the Hermes agent fleet. Bridges Claude Desktop to the self-hosted Hindsight server on Fly (bank 'hermes') over the WireGuard tunnel, exposing recall/retain/reflect and the rest of the Hindsight knowledge tools.",
+  "long_description": "Connects Claude Desktop to Blake's self-hosted Hindsight memory server (Fly app 'hindsight-mem', private 6PN, reachable via the personal WireGuard peer). Uses mcp-remote as a stdio<->streamable-HTTP bridge to http://hindsight-mem.internal:8888/mcp/hermes/. The /mcp endpoint is unauthenticated by design and only reachable over the private tunnel, so --allow-http is safe here. Same shared bank the Hermes brain, Telegram gateway, and Claude Code all read/write.",
+  "author": {
+    "name": "Blake Lash",
+    "email": "blash@futurehouse.org"
+  },
+  "keywords": ["memory", "hindsight", "hermes", "mcp-remote"],
+  "license": "MIT",
+  "server": {
+    "type": "node",
+    "entry_point": "server/index.js",
+    "mcp_config": {
+      "command": "npx",
+      "args": [
+        "-y",
+        "mcp-remote",
+        "http://hindsight-mem.internal:8888/mcp/hermes/",
+        "--allow-http",
+        "--transport",
+        "http-only"
+      ]
+    }
+  }
+}
