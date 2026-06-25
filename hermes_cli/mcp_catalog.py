@@ -472,6 +472,18 @@ def _build_server_config(
         cfg["url"] = t.url
         if entry.auth.type == "oauth":
             cfg["auth"] = "oauth"
+        elif entry.auth.type == "api_key":
+            # PAT/bearer-token HTTP servers (e.g. GitHub's remote MCP, which
+            # exposes no DCR endpoint so native OAuth can't be used at all —
+            # headless or not). Inject the same Authorization-header template
+            # that `hermes mcp add --auth header` writes, so the secret saved
+            # to .env is interpolated at connect time. The env var is named by
+            # auth.env_var, else the first declared auth.env entry.
+            bearer_env = entry.auth.env_var or (
+                entry.auth.env[0].name if entry.auth.env else None
+            )
+            if bearer_env:
+                cfg["headers"] = {"Authorization": f"Bearer ${{{bearer_env}}}"}
     return cfg
 
 

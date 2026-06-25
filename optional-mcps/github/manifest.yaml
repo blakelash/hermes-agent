@@ -8,10 +8,14 @@ name: github
 description: Work on GitHub repos as a collaborator — open/manage PRs, review and comment, triage issues, read CI.
 source: https://github.com/github/github-mcp-server
 
-# GitHub ships a hosted remote MCP server with native OAuth 2.0 + Dynamic
-# Client Registration over Streamable HTTP. Hermes's MCP client +
-# mcp_oauth_manager handle discovery, PKCE, token exchange, and refresh —
-# nothing to install or run locally.
+# GitHub hosts a remote MCP server over Streamable HTTP — nothing to install
+# or run locally. We authenticate with a Personal Access Token in the
+# Authorization header, NOT native MCP OAuth: GitHub's server exposes no
+# Dynamic Client Registration endpoint, so the DCR step the MCP OAuth client
+# performs 404s (the registration the `linear` entry relies on). OAuth on
+# GitHub's server requires a pre-registered GitHub/OAuth App, which Hermes
+# does not ship — a PAT is the supported path, and it's also the right fit for
+# a headless always-on deploy (no browser, no refresh-on-a-headless-box).
 #
 # Toolset scoping is also available server-side via the URL path, if you'd
 # rather constrain there than at the install-time checklist:
@@ -24,12 +28,17 @@ transport:
   url: https://api.githubcopilot.com/mcp/
 
 auth:
-  type: oauth
-  # No `provider:` — this is native MCP OAuth (case 1), same as the `linear`
-  # entry, not a third-party provider flow (case 2). The MCP client opens the
-  # browser on first probe / first connect. The scopes the agent can act with
-  # are whatever you grant during that authorization — for the PR-writing
-  # surface below you'll want repo contents + pull_requests + issues write.
+  type: api_key
+  # The token saved here is injected as `Authorization: Bearer ${...}` for the
+  # HTTP transport. env_var names which collected secret becomes that bearer
+  # token. MCP_GITHUB_API_KEY matches the key `hermes mcp add github` would use
+  # (_env_key_for_server), so the catalog and ad-hoc routes share one .env key.
+  env_var: MCP_GITHUB_API_KEY
+  env:
+    - name: MCP_GITHUB_API_KEY
+      prompt: "GitHub fine-grained PAT (scope: Contents R/W, Pull requests R/W, Issues R/W, Actions R)"
+      required: true
+      secret: true
 
 # Tool selection at install time.
 #
@@ -86,14 +95,16 @@ tools:
     - rerun_failed_jobs
 
 post_install: |
-  On first connection, Hermes opens a browser to authorize against GitHub.
-  Grant access only to the repos you want the agent to collaborate on, and at
-  the permission level you intend:
-    • To open/manage PRs, comment, and merge → write on contents +
-      pull_requests + issues.
-    • For a review-only collaborator → read-only (or point this entry's URL at
-      .../mcp/readonly) so the agent can review, comment, and triage but not
-      push or merge.
+  Authentication uses a GitHub Personal Access Token (saved to .env as
+  MCP_GITHUB_API_KEY, sent as `Authorization: Bearer`). Create a fine-grained
+  PAT scoped to ONLY the repos the agent should touch, at the level you intend:
+    • To open/manage PRs, comment, and merge → Contents R/W, Pull requests R/W,
+      Issues R/W, Actions R.
+    • For a review-only collaborator → read-only on those scopes (or point this
+      entry's URL at .../mcp/readonly) so the agent can review, comment, and
+      triage but not push or merge.
+  The server auto-hides tools your token lacks scope for, so an over-broad
+  default_enabled list is harmless — the token is the real boundary.
 
   Authoring model: this server does NOT write your code. The agent clones,
   branches, edits, commits, and pushes through its terminal/sandbox using git
