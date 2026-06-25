@@ -1,0 +1,53 @@
+# Self-hosted Hindsight memory server for the Hermes scientific-collaborator.
+# Private-network ONLY: no [http_service], no public IP. Reached by hermes-collab
+# (and worker profiles) at http://hindsight-mem.internal:8888 over Fly 6PN.
+#
+# The API on :8888 is UNAUTHENTICATED by design (no server-side API key exists),
+# so it MUST never get a public IP. Control-plane UI (:9999) is not exposed.
+#
+# Version pinned to 0.6.1 to match hermes' bundled `hindsight-client==0.6.1`
+# (tools/lazy_deps.py) for a guaranteed client<->server contract match.
+
+app = "hindsight-mem"
+primary_region = "iad"
+
+[build]
+  image = "ghcr.io/vectorize-io/hindsight:0.6.1"
+
+[env]
+  HINDSIGHT_API_LLM_PROVIDER = "anthropic"
+  HINDSIGHT_API_LLM_MODEL = "claude-haiku-4-5"
+  # Fly's private network (.internal / 6PN) is IPv6-only, so the API must bind IPv6.
+  # This image is bindv6only (confirmed at runtime: "::" made the container's own
+  # startup healthcheck — which polls http://localhost:8888/health over IPv4 loopback —
+  # fail with "API did not become healthy within 300s" -> exit 1 crash loop).
+  # Fix: bind "::" (v6, reachable on 6PN) AND repoint the internal healthcheck at the
+  # IPv6 loopback so it can reach the v6-only socket. start-all.sh honors these envs.
+  HINDSIGHT_API_HOST = "::"
+  HINDSIGHT_API_HEALTH_URL = "http://[::1]:8888/health"
+  # Headroom: full image loads BGE embedder + MiniLM reranker on a single shared vCPU.
+  HINDSIGHT_API_STARTUP_WAIT_SECONDS = "600"
+  # Stable worker id (default is the container hostname, which churns on every
+  # Fly restart/redeploy — upstream recommends a fixed id in production).
+  HINDSIGHT_API_WORKER_ID = "hindsight-iad-1"
+
+# Embedded PostgreSQL (pg0) data dir. Mount EXACTLY .pg0 — never /home/hindsight
+# (mounting the whole home shadows the user dir and breaks startup).
+[mounts]
+  source = "hindsight_data"
+  destination = "/home/hindsight/.pg0"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "2gb"   # full image loads local BGE embedder + MiniLM reranker; 1.5GB min, 2GB recommended
+
+# Machine-level health check against the real /version endpoint (private port).
+# Generous grace: first boot does PG initdb + loads embedding/reranker models.
+[checks]
+  [checks.health]
+    type = "http"
+    port = 8888
+    path = "/health"
+    interval = "30s"
+    timeout = "5s"
+    grace_period = "300s"
