@@ -1,0 +1,105 @@
+# Nous-approved MCP catalog entry.
+# Presence in this directory = approval. Merged via PR review.
+#
+# Schema version 1.
+manifest_version: 1
+
+name: github
+description: Work on GitHub repos as a collaborator — open/manage PRs, review and comment, triage issues, read CI.
+source: https://github.com/github/github-mcp-server
+
+# GitHub ships a hosted remote MCP server with native OAuth 2.0 + Dynamic
+# Client Registration over Streamable HTTP. Hermes's MCP client +
+# mcp_oauth_manager handle discovery, PKCE, token exchange, and refresh —
+# nothing to install or run locally.
+#
+# Toolset scoping is also available server-side via the URL path, if you'd
+# rather constrain there than at the install-time checklist:
+#   https://api.githubcopilot.com/mcp/                  all toolsets (this entry)
+#   https://api.githubcopilot.com/mcp/readonly          every tool, read-only
+#   https://api.githubcopilot.com/mcp/x/pull_requests   one toolset only
+#   https://api.githubcopilot.com/mcp/x/pull_requests/readonly
+transport:
+  type: http
+  url: https://api.githubcopilot.com/mcp/
+
+auth:
+  type: oauth
+  # No `provider:` — this is native MCP OAuth (case 1), same as the `linear`
+  # entry, not a third-party provider flow (case 2). The MCP client opens the
+  # browser on first probe / first connect. The scopes the agent can act with
+  # are whatever you grant during that authorization — for the PR-writing
+  # surface below you'll want repo contents + pull_requests + issues write.
+
+# Tool selection at install time.
+#
+# DESIGN: code *authoring* (clone, branch, edit, commit, push) belongs in
+# Hermes's terminal/sandbox via git + `gh`, not in MCP — so the MCP file-write
+# tools (create_or_update_file, push_files) are intentionally LEFT OUT of the
+# default. This server is the *collaboration / management* layer: PRs, reviews,
+# comments, issues, and reading CI. Destructive repo administration (delete
+# branch/file, repo settings, fork) is also excluded from the default.
+#
+# NOTE: GitHub's MCP tool names have shifted across server versions (the review
+# tools especially). The install-time checklist probes the LIVE server and is
+# authoritative — any name below that no longer exists is simply not pre-checked.
+# Re-tune any time with:  hermes mcp configure github
+tools:
+  default_enabled:
+    # — Repos: read + branch creation (no file writes; authoring is git/sandbox) —
+    - get_file_contents
+    - list_commits
+    - get_commit
+    - list_branches
+    - create_branch
+    - search_code
+    - search_repositories
+    # — Issues —
+    - get_issue
+    - list_issues
+    - search_issues
+    - create_issue
+    - update_issue
+    - add_issue_comment
+    # — Pull requests: the core collaborator loop —
+    - get_pull_request
+    - list_pull_requests
+    - search_pull_requests
+    - get_pull_request_files
+    - get_pull_request_diff
+    - get_pull_request_comments
+    - get_pull_request_reviews
+    - get_pull_request_status
+    - create_pull_request
+    - update_pull_request
+    - update_pull_request_branch
+    - create_pending_pull_request_review
+    - add_comment_to_pending_review
+    - submit_pending_pull_request_review
+    - create_and_submit_pull_request_review
+    - request_copilot_review
+    - merge_pull_request
+    # — Actions: read CI and react to failures —
+    - list_workflow_runs
+    - get_workflow_run
+    - get_job_logs
+    - rerun_failed_jobs
+
+post_install: |
+  On first connection, Hermes opens a browser to authorize against GitHub.
+  Grant access only to the repos you want the agent to collaborate on, and at
+  the permission level you intend:
+    • To open/manage PRs, comment, and merge → write on contents +
+      pull_requests + issues.
+    • For a review-only collaborator → read-only (or point this entry's URL at
+      .../mcp/readonly) so the agent can review, comment, and triage but not
+      push or merge.
+
+  Authoring model: this server does NOT write your code. The agent clones,
+  branches, edits, commits, and pushes through its terminal/sandbox using git
+  and the `gh` CLI, then uses these tools to open the PR, request review,
+  respond to review threads, read CI, and merge. For parallel PR work across
+  branches, run each task in an isolated sandbox/worktree so checkouts don't
+  collide in a shared working tree.
+
+  Start a new Hermes session to load the GitHub tools.
