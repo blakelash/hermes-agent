@@ -51,6 +51,7 @@ class ManagedModalEnvironment(BaseModalExecutionEnvironment):
         modal_sandbox_kwargs: Optional[Dict[str, Any]] = None,
         persistent_filesystem: bool = True,
         task_id: str = "default",
+        modal_volumes: Optional[list[dict]] = None,
     ):
         super().__init__(cwd=cwd, timeout=timeout)
 
@@ -66,6 +67,7 @@ class ManagedModalEnvironment(BaseModalExecutionEnvironment):
         self._persistent = persistent_filesystem
         self._image = image
         self._sandbox_kwargs = dict(modal_sandbox_kwargs or {})
+        self._modal_volumes = list(modal_volumes or [])
         self._create_idempotency_key = str(uuid.uuid4())
         self._sandbox_id = self._create_sandbox()
 
@@ -192,6 +194,19 @@ class ManagedModalEnvironment(BaseModalExecutionEnvironment):
         }
         if disk is not None:
             create_payload["diskMiB"] = disk
+        if self._modal_volumes:
+            # Gateway-dependent: only sent when volumes are configured, so the
+            # default managed payload is unchanged. If the gateway rejects this
+            # field, use TERMINAL_MODAL_MODE=direct for volume support.
+            create_payload["volumes"] = [
+                {
+                    "name": vol["name"],
+                    "mountPath": vol["mount_path"],
+                    "createIfMissing": vol.get("create_if_missing", True),
+                    "readOnly": vol.get("read_only", False),
+                }
+                for vol in self._modal_volumes
+            ]
 
         response = self._request(
             "POST",

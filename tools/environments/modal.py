@@ -206,6 +206,7 @@ class ModalEnvironment(BaseEnvironment):
         modal_sandbox_kwargs: Optional[dict[str, Any]] = None,
         persistent_filesystem: bool = True,
         task_id: str = "default",
+        modal_volumes: Optional[list[dict]] = None,
     ):
         super().__init__(cwd=cwd, timeout=timeout)
 
@@ -215,6 +216,7 @@ class ModalEnvironment(BaseEnvironment):
         self._app = None
         self._worker = _SyncWorker()
         self._sync_manager: FileSyncManager | None = None  # initialized after sandbox creation
+        self._modal_volumes = list(modal_volumes or [])
 
         sandbox_kwargs = dict(modal_sandbox_kwargs or {})
 
@@ -270,6 +272,34 @@ class ModalEnvironment(BaseEnvironment):
                 len(forwarded_env), ", ".join(sorted(forwarded_env)),
             )
 
+        # Persistent Modal Volumes (durable storage for scientific work).
+        # Volumes live independently of the sandbox: they survive teardown and
+        # are NOT captured by snapshot_filesystem() on cleanup — that's the
+        # point. Because _create_sandbox() mounts them on every create (base
+        # image *and* snapshot restore), they re-attach on every session.
+        volume_mounts: dict[str, Any] = {}
+        for vol in self._modal_volumes:
+            try:
+                volume = _modal.Volume.from_name(
+                    vol["name"], create_if_missing=vol.get("create_if_missing", True)
+                )
+                if vol.get("read_only") and hasattr(volume, "read_only"):
+                    volume = volume.read_only()
+                elif vol.get("read_only"):
+                    logger.warning(
+                        "Modal: read-only volumes unsupported by this SDK; "
+                        "mounting %s read-write", vol["name"],
+                    )
+                volume_mounts[vol["mount_path"]] = volume
+                logger.info(
+                    "Modal: mounting Volume %r at %s", vol["name"], vol["mount_path"]
+                )
+            except Exception as e:
+                logger.warning(
+                    "Modal: could not prepare Volume %r at %s: %s",
+                    vol.get("name"), vol.get("mount_path"), e,
+                )
+
         def _create_sandbox(image_spec: Any):
             app = _modal.App.lookup("hermes-agent", create_if_missing=True)
             create_kwargs = dict(sandbox_kwargs)
@@ -281,6 +311,10 @@ class ModalEnvironment(BaseEnvironment):
                 existing_secrets = list(create_kwargs.pop("secrets", []))
                 existing_secrets.append(_modal.Secret.from_dict(forwarded_env))
                 create_kwargs["secrets"] = existing_secrets
+            if volume_mounts:
+                merged_volumes = dict(create_kwargs.pop("volumes", {}) or {})
+                merged_volumes.update(volume_mounts)
+                create_kwargs["volumes"] = merged_volumes
             sandbox = _modal.Sandbox.create(
                 "sleep", "infinity",
                 image=image_spec,

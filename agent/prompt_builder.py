@@ -1061,6 +1061,34 @@ def build_environment_hints() -> str:
                 f"`uname -a && whoami && pwd`."
             )
 
+    # Persistent Modal Volumes — tell the agent which paths survive teardown so
+    # durable scientific work (datasets, checkpoints, figures, results) is
+    # written to the volume rather than the ephemeral sandbox filesystem.
+    if backend in {"modal", "managed_modal"}:
+        try:
+            from tools.environments.modal_volumes import (
+                describe_modal_volumes,
+                parse_modal_volumes_env,
+            )
+
+            _volumes = parse_modal_volumes_env(os.getenv("TERMINAL_MODAL_VOLUMES"))
+            if _volumes:
+                _desc = describe_modal_volumes(_volumes)
+                hints.append(
+                    "Persistent storage: the following path(s) are Modal Volumes "
+                    "that PERSIST across sandbox teardown and are shared across "
+                    "sandboxes/tasks:\n"
+                    f"{_desc}\n"
+                    "Everything else in the sandbox (e.g. /root, /tmp, the working "
+                    "directory) is EPHEMERAL and is lost when the sandbox stops. "
+                    "Write any data, checkpoints, figures, or results you need to "
+                    "keep into a volume path above. To avoid clobbering other "
+                    "concurrent tasks, write under a per-run subdirectory "
+                    "(e.g. <mount>/<run-or-task-id>/...)."
+                )
+        except Exception as e:
+            logger.debug("Could not build Modal volume hint: %s", e)
+
     # Hermes desktop GUI — any agent running under the desktop app should know
     # it. HERMES_DESKTOP marks the backend powering the chat; HERMES_DESKTOP_TERMINAL
     # marks a hermes launched in the embedded terminal pane. Both set by main.cjs.
