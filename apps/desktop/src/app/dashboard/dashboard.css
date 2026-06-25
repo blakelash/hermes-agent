@@ -432,6 +432,44 @@
   color: var(--hd-faint);
   line-height: 1.5;
 }
+
+/* project create / rename controls */
+.hd-proj-new {
+  margin-left: auto;
+  border: 0;
+  background: transparent;
+  color: var(--hd-accent);
+  font: 600 11px var(--hd-sans);
+  cursor: pointer;
+  padding: 0;
+}
+.hd-input {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--hd-line);
+  border-radius: 6px;
+  padding: 4px 8px;
+  font: 13px var(--hd-sans);
+  color: var(--hd-ink);
+  background: #fff;
+  outline: none;
+}
+.hd-input:focus {
+  border-color: var(--hd-accent);
+}
+.hd-proj-edit {
+  border: 0;
+  background: transparent;
+  color: var(--hd-faint);
+  cursor: pointer;
+  font-size: 11px;
+  padding: 0 2px;
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.hd-row:hover .hd-proj-edit {
+  opacity: 1;
+}
 .hd-empty--center {
   text-align: center;
   padding: 26px 15px;

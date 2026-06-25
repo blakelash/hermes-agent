@@ -81,6 +81,30 @@ export function DashboardView({ gateway, onClose, onOpenWorkspace, requestGatewa
     [onOpenWorkspace]
   )
 
+  const createProject = useCallback(
+    async (name: string) => {
+      try {
+        await requestGateway('projects.create', { name })
+        await refresh()
+      } catch (error) {
+        notifyError(error, 'Could not create project')
+      }
+    },
+    [refresh, requestGateway]
+  )
+
+  const renameProject = useCallback(
+    async (slug: string, name: string) => {
+      try {
+        await requestGateway('projects.rename', { name, slug })
+        await refresh()
+      } catch (error) {
+        notifyError(error, 'Could not rename project')
+      }
+    },
+    [refresh, requestGateway]
+  )
+
   // The plain "Workspace →" button opens the active session's workspace, not a
   // previously-focused project.
   const openWorkspaceGeneric = useCallback(() => {
@@ -91,7 +115,12 @@ export function DashboardView({ gateway, onClose, onOpenWorkspace, requestGatewa
   return (
     <div className="hermes-dashboard hd-root">
       <DashboardTopBar onOpenWorkspace={openWorkspaceGeneric} onView={setDashboardView} view={view} />
-      <StreamView onOpenProject={openProject} onResolveNeed={resolveNeed} />
+      <StreamView
+        onCreateProject={createProject}
+        onOpenProject={openProject}
+        onRenameProject={renameProject}
+        onResolveNeed={resolveNeed}
+      />
       <DashboardToast />
     </div>
   )
