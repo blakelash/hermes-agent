@@ -121,3 +121,14 @@ Messages are OpenAI format (`system`/`user`/`assistant`/`tool`); reasoning lives
 - **Cross-platform:** Windows, macOS, and Linux are all first-class. Avoid POSIX-only idioms
   (`os.kill(pid, 0)`, `os.killpg`); prefer `psutil`. Always pass explicit `encoding=` to file I/O
   (enforced by ruff PLW1514).
+
+## Memory: hindsight-hermes (work context)
+
+If the `hindsight-hermes` MCP (Blake's shared agent memory) is connected, treat Claude Code in
+this repo as a **work context** against the shared Hindsight bank:
+- Recall/reflect with `tag_groups: [{"not": {"tags": ["owner:personal"]}}]` so personal facts
+  (fitness, travel, relationships, finances, career/job-search) never surface.
+- Retain durable **work** facts only; tag `src:claude-code` + `project:<slug>`; never tag work
+  facts `owner:personal`, and don't retain personal facts from this context.
+- Full policy + rationale: `deploy/hindsight/work-fleet-memory-policy.md`;
+  tag namespaces: `deploy/hindsight/tagging-convention.md`.
