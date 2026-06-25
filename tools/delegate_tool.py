@@ -2936,7 +2936,15 @@ def _build_top_level_description() -> str:
         f"user and can be disabled globally via "
         "delegation.orchestrator_enabled=false.\n"
         "- Subagent model is NOT selectable per call: children inherit the parent model (plus its fallback chain) unless you pin all subagents to a model via delegation.provider / delegation.model in config.yaml.\n"
-        "- Each subagent gets its own terminal session (separate working directory and state).\n"
+        "- CONCURRENCY/SANDBOX: subagents do NOT get isolated disks. They share "
+        "ONE execution sandbox with you (children collapse to the parent's "
+        "container) — same filesystem and installed packages. In parallel/batch, "
+        "have each subagent write to a DISTINCT path (e.g. a per-task "
+        "subdirectory) and never let two write the same file, or they clobber "
+        "each other. An interrupt or timeout terminates the SHARED sandbox and "
+        "kills every in-flight sibling. For isolated parallel execution "
+        "(conflicting writes, heavier/untrusted code), run separate worker "
+        "processes/profiles (e.g. a kanban worker fleet) instead of a batch.\n"
         "- Results are always returned as an array, one entry per task."
     )
 
@@ -2950,7 +2958,9 @@ def _build_tasks_param_description() -> str:
     return (
         f"Batch mode: tasks to run in parallel (up to {max_children} for this "
         f"user, set via delegation.max_concurrent_children). Each gets "
-        "its own subagent with isolated context and terminal session. "
+        "its own subagent with isolated context, but they SHARE one execution "
+        "sandbox/filesystem — give each a distinct write path (see the "
+        "delegate_task concurrency note). "
         "When provided, top-level goal/context/toolsets are ignored."
     )
 
