@@ -906,6 +906,15 @@ def _emit_approval_request(sid: str, data: dict | None) -> None:
     _emit("approval.request", sid, payload)
 
 
+def _emit_dashboard_update(sid: str, payload: dict | None = None) -> None:
+    """Emit a small ``dashboard.update`` event so the operator Dashboard can
+    refresh its pending-approvals view without polling. Payload is intentionally
+    tiny — ``{"needs_count": N, "request_ids": [...]}`` — the client re-fetches
+    the full snapshot via ``dashboard.snapshot`` / ``approvals.list`` when it
+    needs detail."""
+    _emit("dashboard.update", sid, dict(payload or {}))
+
+
 def _status_update(sid: str, kind: str, text: str | None = None):
     body = (text if text is not None else kind).strip()
     if not body:
@@ -1136,11 +1145,19 @@ def _start_agent_build(sid: str, session: dict) -> None:
             try:
                 from tools.approval import (
                     register_gateway_notify,
+                    register_gateway_dashboard_notify,
                     load_permanent_allowlist,
                 )
 
                 register_gateway_notify(
                     key, lambda data: _emit_approval_request(sid, data)
+                )
+                # Dashboard pending-set change feed — pushes a tiny
+                # dashboard.update event whenever the pending approval queue
+                # grows or shrinks (unregistered alongside the approval notify
+                # in unregister_gateway_notify on session teardown).
+                register_gateway_dashboard_notify(
+                    key, lambda payload: _emit_dashboard_update(sid, payload)
                 )
                 notify_registered = True
                 load_permanent_allowlist()
@@ -8337,12 +8354,186 @@ def _(rid, params: dict) -> dict:
                 "resolved": resolve_gateway_approval(
                     session["session_key"],
                     params.get("choice", "deny"),
+                    request_id=params.get("request_id"),
                     resolve_all=params.get("all", False),
                 )
             },
         )
     except Exception as e:
         return _err(rid, 5004, str(e))
+
+
+@method("approvals.list")
+def _(rid, params: dict) -> dict:
+    """Non-destructive snapshot of the session's pending dangerous-command
+    approvals. Each entry: {request_id, command, description, ...}."""
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    try:
+        from tools.approval import list_pending_approvals
+
+        return _ok(
+            rid, {"approvals": list_pending_approvals(session["session_key"])}
+        )
+    except Exception as e:
+        return _err(rid, 5005, str(e))
+
+
+def _dashboard_cost(agent) -> dict:
+    """Cost + token totals for the Dashboard, sourced from the same live-agent
+    path as session.usage. Returns the estimated session cost and token counts;
+    zeroed when the agent is not yet built (resumed-but-unhydrated session)."""
+    if agent is None:
+        return {"cost_usd": 0.0, "input": 0, "output": 0, "total": 0, "calls": 0}
+    usage = _get_usage(agent)
+    return {
+        "cost_usd": usage.get("cost_usd", 0.0),
+        "cost_status": usage.get("cost_status", ""),
+        "model": usage.get("model", ""),
+        "input": usage.get("input", 0),
+        "output": usage.get("output", 0),
+        "cache_read": usage.get("cache_read", 0),
+        "cache_write": usage.get("cache_write", 0),
+        "total": usage.get("total", 0),
+        "calls": usage.get("calls", 0),
+    }
+
+
+@method("dashboard.snapshot")
+def _(rid, params: dict) -> dict:
+    """One-shot operator Dashboard snapshot: pending approvals (``needs``),
+    the running subagent roster (``specialists``), session cost/token totals
+    (``cost``), and a server ``timestamp``."""
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    try:
+        from tools.approval import list_pending_approvals
+        from tools.delegate_tool import list_active_subagents
+        from tools.terminal_tool import get_active_environments_snapshot
+
+        return _ok(
+            rid,
+            {
+                "needs": list_pending_approvals(session["session_key"]),
+                "specialists": list_active_subagents(),
+                "environments": get_active_environments_snapshot(),
+                "cost": _dashboard_cost(session.get("agent")),
+                "timestamp": time.time(),
+            },
+        )
+    except Exception as e:
+        return _err(rid, 5006, str(e))
+
+
+def _files_root(session: dict) -> str:
+    """Absolute workspace root for files.* on this session.
+
+    Reuses the same cwd the agent's file tools resolve against: the session's
+    registered task-cwd override (keyed by ``session_key``). We register it
+    defensively here in case files.* is called before the agent build wired it,
+    then return the validated session cwd as the containment root.
+    """
+    _register_session_cwd(session)
+    return _session_cwd(session)
+
+
+def _resolve_within_root(root: str, path: str) -> str | None:
+    """Resolve *path* (relative to *root*, or absolute) and confirm it stays
+    inside *root*. Returns the absolute resolved path, or None on escape.
+
+    Guards against ``..`` traversal and absolute paths that climb out of the
+    workspace — consistent with file_tools anchoring reads/writes to the task
+    base dir. ``root`` itself is allowed (listing the workspace top level)."""
+    raw = (path or "").strip()
+    base = os.path.realpath(root)
+    candidate = os.path.expanduser(raw) if raw else base
+    if not os.path.isabs(candidate):
+        candidate = os.path.join(base, candidate)
+    resolved = os.path.realpath(candidate)
+    if resolved == base or resolved.startswith(base + os.sep):
+        return resolved
+    return None
+
+
+@method("files.tree")
+def _(rid, params: dict) -> dict:
+    """Single-level directory listing for the Dashboard workspace pane.
+
+    ``{path}`` is relative to the session workspace root (default: the root
+    itself). Returns ``{path, root, entries}`` where each entry is
+    ``{name, kind, size}`` (kind: "dir" | "file"). Path traversal outside the
+    workspace root is rejected."""
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    try:
+        root = _files_root(session)
+        target = _resolve_within_root(root, params.get("path", ""))
+        if target is None:
+            return _err(rid, 4006, "path escapes workspace root")
+        if not os.path.isdir(target):
+            return _err(rid, 4007, "not a directory")
+        entries: list[dict] = []
+        for name in sorted(os.listdir(target)):
+            full = os.path.join(target, name)
+            is_dir = os.path.isdir(full)
+            try:
+                size = 0 if is_dir else os.path.getsize(full)
+            except OSError:
+                size = 0
+            entries.append(
+                {"name": name, "kind": "dir" if is_dir else "file", "size": size}
+            )
+        return _ok(
+            rid,
+            {
+                "root": root,
+                "path": os.path.relpath(target, root).replace(os.sep, "/"),
+                "entries": entries,
+            },
+        )
+    except Exception as e:
+        return _err(rid, 5007, str(e))
+
+
+@method("files.read")
+def _(rid, params: dict) -> dict:
+    """Read a workspace file for the Dashboard.
+
+    ``{path}`` is relative to the session workspace root. Reuses
+    ``read_file_tool`` (paginated, line-numbered, with the same device-path /
+    binary / traversal guards the agent's read_file uses) keyed by the session
+    ``task_id`` so resolution matches the agent. Optional ``offset``/``limit``
+    are forwarded. Returns the parsed read_file payload (``content``,
+    ``total_lines``, ``truncated`` …) or ``{error}``."""
+    session, err = _sess_nowait(params, rid)
+    if err:
+        return err
+    try:
+        from tools.file_tools import read_file_tool
+
+        root = _files_root(session)
+        resolved = _resolve_within_root(root, params.get("path", ""))
+        if resolved is None:
+            return _err(rid, 4006, "path escapes workspace root")
+        if not os.path.isfile(resolved):
+            return _err(rid, 4007, "not a file")
+        # Pass the absolute, root-validated path so the file read targets exactly
+        # the path we authorized — read_file_tool returns absolute inputs
+        # resolved-but-unanchored, so it never re-resolves against a diverged
+        # live terminal cwd. read_file_tool still applies its device/binary
+        # guards and pagination.
+        raw = read_file_tool(
+            resolved,
+            offset=int(params.get("offset", 1) or 1),
+            limit=int(params.get("limit", 500) or 500),
+            task_id=session["session_key"],
+        )
+        return _ok(rid, json.loads(raw))
+    except Exception as e:
+        return _err(rid, 5008, str(e))
 
 
 # ── Methods: config ──────────────────────────────────────────────────
