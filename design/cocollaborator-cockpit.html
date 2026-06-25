@@ -1,0 +1,225 @@
+<title>Hermes — Research Collaborator</title>
+<style>
+  :root{
+    --paper:#FCFCFD; --ink:#1E2230; --soft:#6A7180; --faint:#9AA1AE;
+    --line:#ECEEF2; --line-2:#F4F5F8; --raise:#FFFFFF;
+    --accent:#5765FF; --accent-soft:#5765FF12;
+    --good:#2E9E66; --warn:#B9802C;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    --mono:ui-monospace,"SF Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans);
+    font-size:15px; line-height:1.6; -webkit-font-smoothing:antialiased;
+    display:flex; flex-direction:column; min-height:100vh}
+  button{font-family:inherit; cursor:pointer}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:3px; border-radius:5px}
+  .mono{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+  /* header — deliberately minimal */
+  header.bar{position:sticky; top:0; z-index:5; background:#FCFCFDdd; backdrop-filter:blur(8px);
+    border-bottom:1px solid var(--line); }
+  .bar .in{max-width:760px; margin:0 auto; padding:14px 24px; display:flex; align-items:center; gap:12px}
+  .mark{font-family:var(--serif); font-size:17px; font-weight:600; letter-spacing:.01em}
+  .mark .who{color:var(--faint); font-weight:400; font-size:13px; font-family:var(--sans)}
+  .bar .right{margin-left:auto; display:flex; align-items:center; gap:14px}
+  .inst{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--soft)}
+  .inst .d{width:6px;height:6px;border-radius:50%;background:var(--good)}
+  .status{display:flex; align-items:center; gap:7px; font-size:12.5px; color:var(--soft)}
+  .status .p{width:6px;height:6px;border-radius:50%;background:var(--accent); animation:breathe 2.4s ease-in-out infinite}
+
+  /* conversation column */
+  main{flex:1 1 auto; width:100%; max-width:760px; margin:0 auto; padding:36px 24px 150px}
+  .turn{margin:0 0 30px}
+  .you{display:flex; gap:12px; justify-content:flex-end}
+  .you .b{background:var(--raise); border:1px solid var(--line); border-radius:14px 14px 4px 14px;
+    padding:11px 15px; max-width:78%; font-size:15px}
+  .her{display:flex; gap:14px}
+  .av{width:30px;height:30px;border-radius:9px; flex:0 0 auto; margin-top:2px; display:grid; place-items:center;
+    background:var(--accent-soft); color:var(--accent); font-family:var(--serif); font-weight:600; font-size:15px}
+  .her .body{min-width:0; flex:1 1 auto}
+  .her p{margin:0 0 12px} .her p:last-child{margin-bottom:0}
+  .her p:first-child{margin-top:3px}
+  .lede{max-width:62ch}
+  .src-line{color:var(--soft); font-size:13.5px}
+  .src-line a{color:var(--accent); text-decoration:none; border-bottom:1px solid var(--accent-soft)}
+
+  /* the quiet "work" disclosure — collapsed by default */
+  details.work{margin:6px 0 14px; border:1px solid var(--line); border-radius:12px; background:var(--raise); overflow:hidden}
+  details.work>summary{list-style:none; cursor:pointer; padding:11px 14px; display:flex; align-items:center; gap:10px;
+    font-size:13.5px; color:var(--soft)}
+  details.work>summary::-webkit-details-marker{display:none}
+  details.work>summary .tick{width:16px;height:16px;border-radius:50%; background:var(--good); flex:0 0 auto;
+    display:grid; place-items:center; color:#fff; font-size:10px}
+  details.work>summary .lbl{color:var(--ink); font-weight:500}
+  details.work>summary .chev{margin-left:auto; color:var(--faint); transition:transform .2s}
+  details.work[open]>summary .chev{transform:rotate(90deg)}
+  .worklist{padding:2px 14px 12px 14px; border-top:1px solid var(--line-2)}
+  .step{display:flex; gap:11px; padding:9px 0; font-size:13.5px; color:var(--soft)}
+  .step+.step{border-top:1px solid var(--line-2)}
+  .step .n{font-family:var(--mono); font-size:11px; color:var(--faint); flex:0 0 auto; margin-top:2px}
+  .step b{color:var(--ink); font-weight:600}
+  .step .meta{color:var(--faint); font-size:12px; font-family:var(--mono)}
+  .result{margin-top:6px; font-family:var(--mono); font-size:12.5px; color:var(--ink); background:var(--line-2);
+    border-radius:7px; padding:8px 10px; display:inline-block}
+  .result .up{color:var(--warn)}
+
+  /* gentle live indicator */
+  .working{display:inline-flex; align-items:center; gap:9px; color:var(--soft); font-size:13.5px; margin-top:4px}
+  .working .dots{display:inline-flex; gap:4px}
+  .working .dots i{width:5px;height:5px;border-radius:50%;background:var(--accent); opacity:.4; animation:wave 1.3s ease-in-out infinite}
+  .working .dots i:nth-child(2){animation-delay:.18s} .working .dots i:nth-child(3){animation-delay:.36s}
+
+  /* composer pinned, same column width, calm */
+  .dock{position:fixed; left:0; right:0; bottom:0; background:linear-gradient(180deg,#FCFCFD00,#FCFCFD 28%);
+    padding:14px 24px 18px}
+  .dock .in{max-width:760px; margin:0 auto}
+  .field{display:flex; align-items:flex-end; gap:10px; border:1px solid var(--line); background:var(--raise);
+    border-radius:16px; padding:8px 8px 8px 16px; box-shadow:0 8px 30px -22px #1e2230}
+  .field:focus-within{border-color:#cfd4e6; box-shadow:0 8px 30px -18px #5765ff66}
+  .ta{flex:1 1 auto; padding:6px 0; font-size:15px; color:var(--ink); min-height:24px; max-height:140px; overflow-y:auto}
+  .ta:empty::before{content:attr(data-ph); color:var(--faint)}
+  .send{flex:0 0 auto; width:38px;height:38px;border:0;border-radius:11px; background:var(--accent); color:#fff;
+    display:grid; place-items:center; font-size:16px}
+  .send:hover{background:#4754f0}
+  .undertext{max-width:760px; margin:9px auto 0; display:flex; align-items:center; gap:8px; color:var(--faint); font-size:12px}
+  .undertext .amb{display:inline-flex; align-items:center; gap:7px}
+  .undertext .amb .p{width:5px;height:5px;border-radius:50%;background:var(--accent); animation:breathe 2.4s ease-in-out infinite}
+  .undertext button.more{margin-left:auto; border:0; background:transparent; color:var(--soft); font-size:12px; text-decoration:underline; text-underline-offset:2px}
+
+  /* admin drawer — hidden until summoned */
+  .scrim{position:fixed; inset:0; background:#1e223055; opacity:0; pointer-events:none; transition:opacity .25s; z-index:20}
+  .scrim.on{opacity:1; pointer-events:auto}
+  .drawer{position:fixed; top:0; right:0; bottom:0; width:380px; max-width:90vw; background:var(--raise);
+    border-left:1px solid var(--line); transform:translateX(100%); transition:transform .26s cubic-bezier(.4,0,.2,1);
+    z-index:21; display:flex; flex-direction:column; box-shadow:-20px 0 50px -30px #1e2230}
+  .drawer.on{transform:none}
+  .drawer h2{font-family:var(--serif); font-size:16px; margin:0; font-weight:600}
+  .drawer .dh{display:flex; align-items:center; gap:10px; padding:16px 18px; border-bottom:1px solid var(--line)}
+  .drawer .dh .x{margin-left:auto; border:0; background:transparent; color:var(--faint); font-size:18px; line-height:1}
+  .drawer .dh .tag{font-family:var(--mono); font-size:10px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); border:1px solid var(--line); border-radius:5px; padding:2px 6px}
+  .drawer .dbody{overflow-y:auto; padding:6px 0}
+  .grp{padding:12px 18px}
+  .grp+.grp{border-top:1px solid var(--line-2)}
+  .grp .gl{font-family:var(--mono); font-size:10px; letter-spacing:.12em; text-transform:uppercase; color:var(--faint); margin-bottom:9px}
+  .row{display:flex; align-items:center; gap:10px; padding:7px 0; font-size:13px}
+  .row .nm{font-weight:500}
+  .row .rl{color:var(--faint); font-family:var(--mono); font-size:11px}
+  .row .pill{margin-left:auto; font-family:var(--mono); font-size:9.5px; letter-spacing:.06em; text-transform:uppercase; padding:3px 7px; border-radius:5px}
+  .pill.run{background:var(--accent-soft); color:var(--accent)} .pill.done{background:#2e9e6618; color:var(--good)}
+  .pill.queue{background:#9aa1ae18; color:var(--soft)} .pill.block{background:#b9802c18; color:var(--warn)}
+  .jl{font-size:13px; padding:7px 0; display:flex; gap:10px; align-items:baseline}
+  .jl .nm{font-weight:500} .jl .mt{margin-left:auto; font-family:var(--mono); font-size:11.5px; color:var(--soft)}
+  .console{display:block; width:calc(100% - 36px); margin:8px 18px 16px; text-align:center; border:1px solid var(--line);
+    background:var(--paper); color:var(--soft); border-radius:9px; padding:9px; font-size:12.5px}
+  .console:hover{border-color:#cfd4e6; color:var(--ink)}
+
+  @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
+  @keyframes wave{0%,100%{opacity:.35; transform:translateY(0)}50%{opacity:1; transform:translateY(-3px)}}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important}}
+</style>
+
+<header class="bar">
+  <div class="in">
+    <div class="mark">Hermes <span class="who">· research collaborator</span></div>
+    <div class="right">
+      <span class="inst"><span class="d"></span>Remote</span>
+      <span class="status"><span class="p"></span>working</span>
+    </div>
+  </div>
+</header>
+
+<main>
+
+  <div class="turn">
+    <div class="you"><div class="b">Do resistance signatures track AXL / EMT expression in KRAS-G12C lines?</div></div>
+  </div>
+
+  <div class="turn her">
+    <div class="av">H</div>
+    <div class="body">
+      <p class="lede">Short answer: <b>yes</b> — resistant lines show a coordinated EMT shift, and it lines up with the literature.</p>
+
+      <details class="work">
+        <summary>
+          <span class="tick">✓</span>
+          <span class="lbl">Looked into it</span> — searched, ran the analysis, checked against papers
+          <span class="chev">›</span>
+        </summary>
+        <div class="worklist">
+          <div class="step"><span class="n">1</span><span><b>Searched the literature</b> — 12 sources, kept 4 peer-reviewed primaries <span class="meta">lit-searcher · Exa + Edison</span></span></div>
+          <div class="step"><span class="n">2</span><span><b>Ran differential expression</b> on DepMap × adagrasib sensitivity, 412 lines <span class="meta">code-writer · Modal sandbox</span></span></div>
+          <div class="step"><span class="n">3</span><span><b>Checked direction</b> against Adachi 2023 &amp; the Hallmark EMT set — consistent
+            <div class="result">AXL <span class="up">+2.41</span> · VIM +1.88 · CDH1 −1.73 · q ≤ 5e-5</div>
+          </span></div>
+        </div>
+      </details>
+
+      <p>Mesenchymal markers (AXL, VIM, FN1) go up and epithelial <span class="mono">CDH1</span> drops in the resistant cohort — the persister/EMT pattern, not a cell-cycle artifact. AXL is the strongest single hit.</p>
+      <p class="src-line">Grounded in <a href="#">Adachi 2023</a> and <a href="#">Hata 2022</a>. One supporting preprint flagged as not-yet-reviewed.</p>
+
+      <p style="margin-top:14px"><span class="working"><span class="dots"><i></i><i></i><i></i></span> drafting a short write-up with the figure — about a minute</span></p>
+    </div>
+  </div>
+
+</main>
+
+<div class="dock">
+  <div class="in">
+    <div class="field">
+      <div class="ta" contenteditable="true" role="textbox" aria-label="Message Hermes"
+        data-ph="Reply, or ask for something — “re-run on the validation cohort and text me when it’s done”"></div>
+      <button class="send" aria-label="Send">↑</button>
+    </div>
+    <div class="undertext">
+      <span class="amb"><span class="p"></span>2 specialists working · 1 cluster job, ~38m left</span>
+      <button class="more" id="openAdmin">Show what’s running</button>
+    </div>
+  </div>
+</div>
+
+<!-- Admin drawer: everything from v1 lives here, summoned only on demand -->
+<div class="scrim" id="scrim"></div>
+<aside class="drawer" id="drawer" aria-label="Admin panel" aria-hidden="true">
+  <div class="dh">
+    <h2>Under the hood</h2>
+    <span class="tag">admin</span>
+    <button class="x" id="closeAdmin" aria-label="Close">✕</button>
+  </div>
+  <div class="dbody">
+    <div class="grp">
+      <div class="gl">Specialist fleet</div>
+      <div class="row"><span class="nm">code-writer</span><span class="rl">modal · sb-9f2a</span><span class="pill run">running</span></div>
+      <div class="row"><span class="nm">lit-searcher</span><span class="rl">12 sources</span><span class="pill done">done</span></div>
+      <div class="row"><span class="nm">verifier</span><span class="rl">gate</span><span class="pill queue">queued</span></div>
+      <div class="row"><span class="nm">synthesizer</span><span class="rl">deliverable</span><span class="pill block">blocked</span></div>
+    </div>
+    <div class="grp">
+      <div class="gl">Long-horizon jobs</div>
+      <div class="jl"><span class="nm">esm2_finetune</span><span class="rl" style="font-family:var(--mono);font-size:11px;color:var(--faint)">slurm · A100</span><span class="mt">RUNNING · ~38m</span></div>
+      <div class="jl"><span class="nm">de_analysis</span><span class="rl" style="font-family:var(--mono);font-size:11px;color:var(--faint)">modal</span><span class="mt">RUNNING · $0.03</span></div>
+      <div class="jl"><span class="nm">Job watcher</span><span class="rl" style="font-family:var(--mono);font-size:11px;color:var(--faint)">cron → Telegram</span><span class="mt">next 4m</span></div>
+    </div>
+    <div class="grp">
+      <div class="gl">Run config</div>
+      <div class="row"><span class="nm">Model chain</span><span class="mt" style="margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--soft)">Opus 4.8 → GPT-5.4 → Gemini → Sonnet</span></div>
+      <div class="row"><span class="nm">Execution</span><span class="mt" style="margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--soft)">Modal sandbox · egress locked</span></div>
+      <div class="row"><span class="nm">Memory</span><span class="mt" style="margin-left:auto; font-family:var(--mono); font-size:11px; color:var(--soft)">Honcho · synced 2m</span></div>
+    </div>
+    <a class="console" href="#">Open full admin console →</a>
+  </div>
+</aside>
+
+<script>
+(function(){
+  var s=document.getElementById('scrim'), d=document.getElementById('drawer');
+  function open(){s.classList.add('on');d.classList.add('on');d.setAttribute('aria-hidden','false');}
+  function close(){s.classList.remove('on');d.classList.remove('on');d.setAttribute('aria-hidden','true');}
+  document.getElementById('openAdmin').addEventListener('click',open);
+  document.getElementById('closeAdmin').addEventListener('click',close);
+  s.addEventListener('click',close);
+  document.addEventListener('keydown',function(e){if(e.key==='Escape')close();});
+})();
+</script>

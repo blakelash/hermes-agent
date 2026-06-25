@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&family=Newsreader:opsz,wght@6..72,300..600&display=swap" rel="stylesheet">
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:#F6F5F2;font-family:'Geist',system-ui,-apple-system,sans-serif;color:#14161D}
+  @keyframes hb{0%,100%{opacity:.4}50%{opacity:1}}
+  @keyframes wv{0%,100%{opacity:.3;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+  @keyframes bl{0%,50%{opacity:1}51%,100%{opacity:0}}
+  @keyframes pop{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#0000002a;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+</style>
+</helmet>
+
+<div style="height:100vh;display:flex;flex-direction:column;font-family:'Geist',system-ui,-apple-system,sans-serif;color:#14161D;background:#F6F5F2;font-size:14px;-webkit-font-smoothing:antialiased;overflow:hidden">
+
+  <!-- TOP BAR -->
+  <header style="flex:0 0 auto;display:flex;align-items:center;gap:14px;padding:10px 18px;border-bottom:1px solid #E7E9EF;background:#fff">
+    <div style="font-family:'Newsreader','Palatino Linotype',Palatino,Georgia,serif;font-size:16px;font-weight:600">Hermes</div>
+    <div style="display:flex;background:#ECEEF3;border-radius:9px;padding:2px">
+      <button onClick="{{ toStream }}" style="border:0;background:transparent;color:#565C6B;padding:6px 13px;border-radius:7px;font:600 12.5px 'Geist',system-ui;cursor:pointer">Stream</button>
+      <button style="border:0;background:#fff;color:#0D6E78;padding:6px 13px;border-radius:7px;font:600 12.5px 'Geist',system-ui;cursor:pointer;box-shadow:0 1px 3px #14161d18">Workspace</button>
+    </div>
+    <div style="display:flex;align-items:center;gap:7px;margin-left:6px">
+      <span style="font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#9398A6;margin-right:2px">files in</span>
+      <sc-for list="{{ envs }}" as="e" hint-placeholder-count="4">
+        <button onClick="{{ e.onClick }}" style="{{ e.style }}"><span style="width:6px;height:6px;border-radius:50%;background:{{ e.dot }}"></span>{{ e.label }}</button>
+      </sc-for>
+    </div>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:14px">
+      <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#565C6B"><span style="width:6px;height:6px;border-radius:50%;background:#0D6E78;animation:hb 2.2s ease-in-out infinite"></span>watching Hermes work</span>
+      <span style="width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#0D6E7812;color:#0D6E78;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:13px">H</span>
+    </div>
+  </header>
+
+  <!-- STAGE: conversation rail | workspace -->
+  <div style="flex:1 1 auto;display:grid;grid-template-columns:322px 1fr;min-height:0">
+
+    <!-- CONVERSATION RAIL -->
+    <section style="border-right:1px solid #E7E9EF;display:flex;flex-direction:column;min-height:0;background:#F6F5F2">
+      <div style="flex:1 1 auto;overflow-y:auto;padding:18px 16px">
+        <div style="display:flex;justify-content:flex-end;margin-bottom:18px"><div style="background:#fff;border:1px solid #E7E9EF;border-radius:12px 12px 3px 12px;padding:9px 12px;max-width:86%;font-size:13.5px;line-height:1.5">add a volcano plot to the analysis and save the figure</div></div>
+
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;background:#0D6E7812;color:#0D6E78;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:13px;margin-top:1px">H</span>
+          <div style="font-size:13.5px;line-height:1.55;min-width:0">On it — adding a <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;background:#0D6E7814;padding:1px 5px;border-radius:4px">volcano()</span> helper to <span style="font-family:'Geist Mono',ui-monospace,monospace">analysis.py</span> and writing <span style="font-family:'Geist Mono',ui-monospace,monospace">figures/volcano_validation.png</span>. I've put the edit on the right for you to review.</div>
+        </div>
+
+        <div style="display:flex;gap:9px;align-items:flex-start;background:#0D6E7812;border:1px solid #0d6e7822;border-radius:10px;padding:9px 11px;font-size:12.5px;margin-bottom:16px">
+          <span style="font-family:'Geist Mono',ui-monospace,monospace;color:#0D6E78">✎</span>
+          <span>Editing <span style="font-family:'Geist Mono',ui-monospace,monospace;background:#0d6e7814;padding:1px 5px;border-radius:4px">analysis.py</span> · lines 22–34 <span style="display:inline-flex;gap:4px;vertical-align:middle;margin-left:2px"><i style="width:4px;height:4px;border-radius:50%;background:#0D6E78;display:inline-block;animation:wv 1.3s ease-in-out infinite"></i><i style="width:4px;height:4px;border-radius:50%;background:#0D6E78;display:inline-block;animation:wv 1.3s ease-in-out .16s infinite"></i><i style="width:4px;height:4px;border-radius:50%;background:#0D6E78;display:inline-block;animation:wv 1.3s ease-in-out .32s infinite"></i></span><br><span style="color:#565C6B">then re-running in sandbox sb-9f2a</span></span>
+        </div>
+
+        <sc-if value="{{ applied }}" hint-placeholder-val="{{ false }}">
+        <div style="display:flex;gap:10px;margin-bottom:16px">
+          <span style="width:26px;height:26px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;background:#0D6E7812;color:#0D6E78;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:13px;margin-top:1px">H</span>
+          <div style="font-size:13.5px;line-height:1.55;min-width:0">Applied your accept — re-running <span style="font-family:'Geist Mono',ui-monospace,monospace">analysis.py</span> now. I'll have the refreshed volcano in a moment.</div>
+        </div>
+        </sc-if>
+      </div>
+      <div style="flex:0 0 auto;padding:12px 14px;border-top:1px solid #E7E9EF">
+        <div style="display:flex;gap:8px;align-items:center;border:1px solid #E7E9EF;background:#fff;border-radius:12px;padding:7px 7px 7px 12px">
+          <div style="flex:1 1 auto;font-size:13.5px;color:#9398A6" contenteditable="true" role="textbox" aria-label="Message Hermes" data-ph="Steer it, or edit the file yourself…">Steer it, or edit the file yourself…</div>
+          <button style="border:0;width:32px;height:32px;border-radius:9px;background:#0D6E78;color:#fff;display:grid;place-items:center;cursor:pointer">↑</button>
+        </div>
+      </div>
+    </section>
+
+    <!-- WORKSPACE -->
+    <section style="display:grid;grid-template-rows:1fr 232px;min-height:0">
+      <div style="display:grid;grid-template-columns:214px 1fr;min-height:0">
+
+        <!-- FILE TREE -->
+        <nav style="border-right:1px solid #E7E9EF;overflow-y:auto;padding:10px 0;background:#fff;min-height:0">
+          <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;text-transform:uppercase;color:#9398A6;padding:4px 14px 8px">sb-9f2a · /root/work</div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px;font-size:13px;color:#565C6B;font-weight:600"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">▾</span>data</div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px 5px 28px;font-size:13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">◦</span>validation_cohort.parquet</div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px 5px 28px;font-size:13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">◦</span>adagrasib_auc.parquet</div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px;font-size:13px;background:#0D6E7812;box-shadow:inset 2px 0 0 #0D6E78"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">›_</span>analysis.py<span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.04em;text-transform:uppercase;padding:2px 5px;border-radius:4px;background:#0D6E7812;color:#0D6E78">editing</span></div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px;font-size:13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">◦</span>de_validation.parquet</div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px;font-size:13px;color:#565C6B;font-weight:600"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">▾</span>figures</div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px 5px 28px;font-size:13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">▦</span>volcano_validation.png<span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.04em;text-transform:uppercase;padding:2px 5px;border-radius:4px;background:#2E9E6614;color:#2E9E66">new</span></div>
+          <div style="display:flex;align-items:center;gap:7px;padding:5px 14px;font-size:13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;color:#9398A6;font-size:11px;width:13px;text-align:center">◆</span>notebook.ipynb</div>
+        </nav>
+
+        <!-- EDITOR -->
+        <div style="display:flex;flex-direction:column;min-height:0;background:#101219">
+          <div style="display:flex;align-items:center;gap:1px;background:#0C0E13;border-bottom:1px solid #232733;flex:0 0 auto;padding:0 6px">
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 13px;font-size:12.5px;color:#fff;background:#101219;border-bottom:2px solid #0D6E78;font-family:'Geist Mono',ui-monospace,monospace"><span style="width:6px;height:6px;border-radius:50%;background:#0D6E78"></span>analysis.py</div>
+            <div style="display:flex;align-items:center;gap:8px;padding:9px 13px;font-size:12.5px;color:#5E657A;font-family:'Geist Mono',ui-monospace,monospace">notebook.ipynb</div>
+          </div>
+
+          <!-- proposal banner -->
+          <sc-if value="{{ pending }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:11px;padding:9px 13px;background:#171a26;border-bottom:1px solid #232733;color:#cfd5e8;font-size:12.5px">
+            <span style="width:20px;height:20px;border-radius:6px;display:grid;place-items:center;background:#0D6E7822;color:#5FCAD4;font-family:'Newsreader',Palatino,serif;font-size:11px;font-weight:600">H</span>
+            <span>Hermes proposes an edit — <b style="color:#fff">+9 −1</b>, adds <span style="font-family:'Geist Mono',ui-monospace,monospace">volcano()</span></span>
+            <span style="margin-left:auto;display:flex;gap:7px">
+              <button onClick="{{ accept }}" style="font:600 11.5px 'Geist',system-ui;border-radius:7px;padding:5px 12px;border:1px solid #0D6E78;background:#0D6E78;color:#fff;cursor:pointer">Accept</button>
+              <button onClick="{{ modify }}" style="font:600 11.5px 'Geist',system-ui;border-radius:7px;padding:5px 11px;border:1px solid #2a3042;background:#1b1f2c;color:#c9cfe2;cursor:pointer">Modify</button>
+              <button onClick="{{ discuss }}" style="font:600 11.5px 'Geist',system-ui;border-radius:7px;padding:5px 11px;border:1px solid #2a3042;background:#1b1f2c;color:#c9cfe2;cursor:pointer">Discuss</button>
+            </span>
+          </div>
+          </sc-if>
+          <sc-if value="{{ applied }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:11px;padding:9px 13px;background:#16221b;border-bottom:1px solid #244031;color:#cfe8d8;font-size:12.5px">
+            <span style="width:20px;height:20px;border-radius:6px;display:grid;place-items:center;background:#2E9E6622;color:#5BC98C;font-size:11px">✓</span>
+            <span>You accepted this edit — <b style="color:#fff">re-running analysis.py</b> in sb-9f2a</span>
+            <button onClick="{{ goTerm }}" style="margin-left:auto;font:600 11.5px 'Geist',system-ui;border-radius:7px;padding:5px 11px;border:1px solid #2c4a39;background:#1c2c24;color:#9fe0bd;cursor:pointer">View run →</button>
+          </div>
+          </sc-if>
+
+          <!-- code with diff -->
+          <div style="flex:1 1 auto;overflow:auto;min-height:0">
+            <div style="font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:12.5px;line-height:1.65;color:#D6DBEA;padding:10px 0">
+              <div style="display:grid;grid-template-columns:46px 1fr"><span style="color:#5E657A;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none">19</span><span style="padding:0 14px;white-space:pre"><span style="color:#5FCAD4">def</span> <span style="color:#E0A85A">diff_express</span>(res, sens, test):</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr"><span style="color:#5E657A;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none">20</span><span style="padding:0 14px;white-space:pre">    <span style="color:#5E657A"># Mann–Whitney per gene, BH-corrected</span></span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr"><span style="color:#5E657A;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none">21</span><span style="padding:0 14px;white-space:pre">    <span style="color:#5FCAD4">return</span> _bh(_mwu(res, sens, test))</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#d8453f12"><span style="color:#e0635f;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none">22</span><span style="padding:0 14px;white-space:pre;opacity:.7"><span style="color:#e0635f">- </span><span style="color:#5E657A"># TODO: plot</span></span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">22</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span><span style="color:#5FCAD4">def</span> <span style="color:#E0A85A">volcano</span>(de, out=<span style="color:#7ED3A6">"figures/volcano_validation.png"</span>):</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">23</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    x = de[<span style="color:#7ED3A6">"log2fc"</span>]; y = -np.<span style="color:#E0A85A">log10</span>(de[<span style="color:#7ED3A6">"q"</span>])</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">24</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    hot = (de[<span style="color:#7ED3A6">"q"</span>] &lt; <span style="color:#E08AA8">0.05</span>) &amp; (x.<span style="color:#E0A85A">abs</span>() &gt; <span style="color:#E08AA8">0.5</span>)</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">25</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    fig, ax = plt.<span style="color:#E0A85A">subplots</span>(figsize=(<span style="color:#E08AA8">4</span>,<span style="color:#E08AA8">3</span>), dpi=<span style="color:#E08AA8">200</span>)</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">26</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    ax.<span style="color:#E0A85A">scatter</span>(x[~hot], y[~hot], s=<span style="color:#E08AA8">6</span>, c=<span style="color:#7ED3A6">"#c2c9d6"</span>)</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">27</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    ax.<span style="color:#E0A85A">scatter</span>(x[hot], y[hot], s=<span style="color:#E08AA8">9</span>, c=<span style="color:#7ED3A6">"#d8453f"</span>)</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">28</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    <span style="color:#E0A85A">_label</span>(ax, de, [<span style="color:#7ED3A6">"AXL"</span>,<span style="color:#7ED3A6">"CDH1"</span>])</span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr;background:#2e9e6614"><span style="color:#3fae74;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none;background:#2e9e6610">29</span><span style="padding:0 14px;white-space:pre"><span style="color:#3fae74">+ </span>    fig.<span style="color:#E0A85A">savefig</span>(out, bbox_inches=<span style="color:#7ED3A6">"tight"</span>)<span style="display:inline-block;width:7px;height:14px;background:#0D6E78;vertical-align:text-bottom;animation:bl 1.1s steps(1) infinite;margin-left:1px"></span></span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr"><span style="color:#5E657A;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none">30</span><span style="padding:0 14px;white-space:pre"> </span></div>
+              <div style="display:grid;grid-template-columns:46px 1fr"><span style="color:#5E657A;text-align:right;padding-right:12px;border-right:1px solid #20253A;user-select:none">31</span><span style="padding:0 14px;white-space:pre">de = <span style="color:#E0A85A">diff_express</span>(res, sens, mannwhitneyu)</span></div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- OUTPUT / TERMINAL -->
+      <div style="border-top:1px solid #E7E9EF;background:#fff;display:flex;flex-direction:column;min-height:0">
+        <div style="display:flex;gap:2px;padding:6px 10px 0;border-bottom:1px solid #E7E9EF;flex:0 0 auto;align-items:center">
+          <button onClick="{{ onOut }}" style="{{ outStyle }}">Output</button>
+          <button onClick="{{ onTerm }}" style="{{ termStyle }}">Terminal</button>
+          <span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10.5px;color:#9398A6;padding-right:6px">{{ runMeta }}</span>
+        </div>
+
+        <sc-if value="{{ outOn }}" hint-placeholder-val="{{ true }}">
+        <div style="flex:1 1 auto;overflow:auto;padding:12px 14px;min-height:0">
+          <div style="display:grid;grid-template-columns:1fr 268px;gap:16px">
+            <table style="width:100%;border-collapse:collapse;font-size:12.5px">
+              <thead><tr><th style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;text-align:left;padding:0 9px 6px;border-bottom:1px solid #E7E9EF">Gene</th><th style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;text-align:left;padding:0 9px 6px;border-bottom:1px solid #E7E9EF">log2FC</th><th style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;text-align:left;padding:0 9px 6px;border-bottom:1px solid #E7E9EF">q</th></tr></thead>
+              <tbody>
+                <tr><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;font-weight:600">AXL</td><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;text-align:right;color:#D8453F">+2.39</td><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;text-align:right">3.4e-6</td></tr>
+                <tr><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;font-weight:600">VIM</td><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;text-align:right;color:#D8453F">+1.81</td><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;text-align:right">9.1e-6</td></tr>
+                <tr><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;font-weight:600">CDH1</td><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;text-align:right;color:#0D6E78">−1.69</td><td style="padding:6px 9px;border-bottom:1px solid #EEF0F4;font-family:'Geist Mono',ui-monospace,monospace;text-align:right">5.0e-5</td></tr>
+              </tbody>
+            </table>
+            <div style="border:1px solid #E7E9EF;border-radius:8px;padding:8px;background:#FAFBFD">
+              <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:#9398A6;margin:2px 2px 6px;display:flex;justify-content:space-between"><span>volcano_validation.png</span><span>n=412</span></div>
+              <div style="height:118px;border-radius:6px;background:repeating-linear-gradient(135deg,#EEF1F6,#EEF1F6 6px,#F7F9FC 6px,#F7F9FC 12px);display:grid;place-items:center"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;color:#9398A6">plot · AXL, VIM, CDH1 labelled</span></div>
+            </div>
+          </div>
+        </div>
+        </sc-if>
+
+        <sc-if value="{{ termOn }}" hint-placeholder-val="{{ false }}">
+        <div style="flex:1 1 auto;overflow:auto;padding:12px 14px;min-height:0">
+          <div style="font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:12px;line-height:1.7;color:#2a2f3c">
+            <div><span style="color:#0D6E78">work ▸</span> python analysis.py</div>
+            <div style="color:#9398A6">loaded validation_cohort.parquet (988 × 19193)</div>
+            <div style="color:#9398A6">resistant n=121 · sensitive n=138</div>
+            <div><span style="color:#2E9E66">✓</span> de_validation.parquet written · 214 genes q&lt;0.05</div>
+            <div><span style="color:#2E9E66">✓</span> figures/volcano_validation.png written</div>
+            <sc-if value="{{ applied }}" hint-placeholder-val="{{ false }}">
+            <div style="margin-top:4px"><span style="color:#0D6E78">work ▸</span> python analysis.py <span style="color:#9398A6"># re-run after accept</span></div>
+            <div><span style="color:#2E9E66">✓</span> volcano() applied · figure refreshed</div>
+            </sc-if>
+            <div><span style="color:#0D6E78">work ▸</span> <span style="display:inline-block;width:7px;height:13px;background:#2a2f3c;vertical-align:text-bottom;animation:bl 1.1s steps(1) infinite"></span></div>
+          </div>
+        </div>
+        </sc-if>
+      </div>
+    </section>
+  </div>
+
+  <!-- TOAST -->
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:40;background:#14161D;color:#fff;font-size:13px;font-weight:500;padding:11px 18px;border-radius:11px;box-shadow:0 12px 34px -16px #14161d;display:flex;align-items:center;gap:10px;animation:pop .22s ease">
+      <span style="width:16px;height:16px;border-radius:50%;background:#2E9E66;display:grid;place-items:center;font-size:10px;flex:0 0 auto">✓</span>{{ toast }}
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:820}}">
+class Component extends DCLogic {
+  state = { outTab: 'out', env: 'sb', applied: false, toast: null };
+
+  toast(msg) {
+    this.setState({ toast: msg });
+    if (this._tt) clearTimeout(this._tt);
+    this._tt = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+  componentWillUnmount() { if (this._tt) clearTimeout(this._tt); }
+
+  renderVals() {
+    const onTab = 'font-size:12px;font-weight:600;color:#0D6E78;background:#0D6E7812;padding:7px 11px;border-radius:7px 7px 0 0;border:0;cursor:pointer';
+    const offTab = 'font-size:12px;font-weight:600;color:#565C6B;background:transparent;padding:7px 11px;border-radius:7px 7px 0 0;border:0;cursor:pointer';
+    const baseEnv = 'display:inline-flex;align-items:center;gap:6px;border:1px solid #E7E9EF;background:#fff;color:#565C6B;border-radius:999px;padding:5px 11px;font-size:12px;font-family:"Geist Mono",ui-monospace,monospace;cursor:pointer';
+    const onEnv = 'display:inline-flex;align-items:center;gap:6px;border:1px solid #0D6E78;background:#0D6E7812;color:#0D6E78;border-radius:999px;padding:5px 11px;font-size:12px;font-family:"Geist Mono",ui-monospace,monospace;cursor:pointer';
+    const envDefs = [
+      { id:'sb', label:'sandbox · sb-9f2a' },
+      { id:'cluster', label:'cluster:/scratch' },
+      { id:'sftp', label:'files · sftp' },
+      { id:'local', label:'local' },
+    ];
+    const envs = envDefs.map(e => {
+      const active = this.state.env === e.id;
+      return { ...e, style: active ? onEnv : baseEnv, dot: active ? '#0D6E78' : '#9398A6', onClick: () => this.setState({ env: e.id }) };
+    });
+    const out = this.state.outTab === 'out';
+    return {
+      envs,
+      outOn: out, termOn: !out,
+      onOut: () => this.setState({ outTab: 'out' }),
+      onTerm: () => this.setState({ outTab: 'term' }),
+      outStyle: out ? onTab : offTab,
+      termStyle: out ? offTab : onTab,
+      pending: !this.state.applied,
+      applied: this.state.applied,
+      runMeta: this.state.applied ? 'cell [4] · re-running · sandbox' : 'cell [3] · 0.8s · sandbox',
+      accept: () => { this.setState({ applied: true, outTab: 'term' }); this.toast('Accepted the edit — re-running analysis.py'); },
+      modify: () => this.toast('Opening the hunk to edit inline…'),
+      discuss: () => this.toast('Reply in the conversation to steer the edit'),
+      goTerm: () => this.setState({ outTab: 'term' }),
+      toStream: () => { window.location.href = 'Hermes Dashboard.dc.html'; },
+      toast: this.state.toast,
+    };
+  }
+}
+</script>
+</body>
+</html>

@@ -1,0 +1,305 @@
+<title>Hermes — Workspace</title>
+<style>
+  :root{
+    --paper:#FBFBFC; --ink:#1E2230; --soft:#6A7180; --faint:#9AA1AE;
+    --line:#ECEEF2; --line-2:#F4F5F8; --raise:#FFFFFF;
+    --accent:#5765FF; --accent-soft:#5765FF12;
+    --good:#2E9E66; --good-soft:#2E9E6614; --warn:#B9802C; --crit:#D8453F;
+    --code-bg:#13161E; --code-tx:#D6DBEA; --code-dim:#5E657A;
+    --add:#1f7a4d; --add-bg:#2e9e6614; --del:#b23b38; --del-bg:#d8453f12;
+    --sans:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;
+    --serif:"Iowan Old Style","Palatino Linotype",Palatino,Georgia,serif;
+    --mono:ui-monospace,"SF Mono","JetBrains Mono",Menlo,Consolas,monospace;
+  }
+  *{box-sizing:border-box}
+  html,body{height:100%}
+  body{margin:0; background:var(--paper); color:var(--ink); font-family:var(--sans); font-size:14px;
+    -webkit-font-smoothing:antialiased; height:100vh; display:flex; flex-direction:column; overflow:hidden}
+  button{font-family:inherit; cursor:pointer}
+  :focus-visible{outline:2px solid var(--accent); outline-offset:2px; border-radius:5px}
+  .mono{font-family:var(--mono); font-variant-numeric:tabular-nums}
+
+  /* top bar: mode + environment (file-access source) */
+  .top{flex:0 0 auto; display:flex; align-items:center; gap:14px; padding:10px 16px; border-bottom:1px solid var(--line); background:var(--raise)}
+  .mark{font-family:var(--serif); font-size:16px; font-weight:600}
+  .modetog{display:flex; background:var(--line-2); border-radius:9px; padding:2px}
+  .modetog button{border:0; background:transparent; color:var(--soft); padding:6px 13px; border-radius:7px; font-size:12.5px; font-weight:600}
+  .modetog button.on{background:var(--raise); color:var(--accent); box-shadow:0 1px 3px #1e223018}
+
+  .envs{display:flex; align-items:center; gap:6px; margin-left:6px}
+  .envs .el{font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); margin-right:2px}
+  .env{display:inline-flex; align-items:center; gap:6px; border:1px solid var(--line); background:var(--raise); color:var(--soft);
+    border-radius:999px; padding:5px 11px; font-size:12px; font-family:var(--mono)}
+  .env.on{border-color:var(--accent); color:var(--accent); background:var(--accent-soft)}
+  .env .d{width:6px;height:6px;border-radius:50%;background:var(--faint)}
+  .env.on .d{background:var(--accent)}
+  .top .right{margin-left:auto; display:flex; align-items:center; gap:12px}
+  .watch{display:inline-flex; align-items:center; gap:7px; font-size:12px; color:var(--soft)}
+  .watch .p{width:6px;height:6px;border-radius:50%;background:var(--accent); animation:breathe 2.2s ease-in-out infinite}
+
+  /* two zones: converse | workspace */
+  .stage{flex:1 1 auto; display:grid; grid-template-columns:330px 1fr; min-height:0}
+
+  /* chat rail (home surface, kept beside the work) */
+  .chat{border-right:1px solid var(--line); display:flex; flex-direction:column; min-height:0; background:var(--paper)}
+  .chat .scroll{flex:1 1 auto; overflow-y:auto; padding:18px 16px}
+  .turn{margin-bottom:18px; font-size:13.5px; line-height:1.55}
+  .you{display:flex; justify-content:flex-end}
+  .you .b{background:var(--raise); border:1px solid var(--line); border-radius:12px 12px 3px 12px; padding:9px 12px; max-width:84%}
+  .her{display:flex; gap:10px}
+  .her .av{width:26px;height:26px;border-radius:8px; flex:0 0 auto; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent); font-family:var(--serif); font-weight:600; font-size:13px; margin-top:1px}
+  .her .bd p{margin:0 0 8px} .her .bd p:last-child{margin:0}
+  .focus{display:flex; gap:9px; align-items:flex-start; background:var(--accent-soft); border:1px solid #5765ff22; border-radius:10px; padding:9px 11px; font-size:12.5px; color:var(--ink)}
+  .focus .ic{font-family:var(--mono); color:var(--accent)}
+  .focus code{font-family:var(--mono); font-size:12px; background:#5765ff14; padding:1px 5px; border-radius:4px}
+  .live{display:inline-flex; gap:4px; vertical-align:middle; margin-left:2px}
+  .live i{width:4px;height:4px;border-radius:50%;background:var(--accent); opacity:.4; animation:wave 1.3s ease-in-out infinite}
+  .live i:nth-child(2){animation-delay:.16s} .live i:nth-child(3){animation-delay:.32s}
+  .chat .dock{flex:0 0 auto; padding:12px 14px; border-top:1px solid var(--line)}
+  .chat .field{display:flex; gap:8px; align-items:center; border:1px solid var(--line); background:var(--raise); border-radius:12px; padding:7px 7px 7px 12px}
+  .chat .ta{flex:1 1 auto; font-size:13.5px; color:var(--ink); min-height:20px}
+  .chat .ta:empty::before{content:attr(data-ph); color:var(--faint)}
+  .chat .send{border:0; width:32px;height:32px; border-radius:9px; background:var(--accent); color:#fff; display:grid; place-items:center}
+
+  /* workspace: tree | editor over output */
+  .ws{display:grid; grid-template-rows:1fr 220px; min-height:0}
+  .wstop{display:grid; grid-template-columns:212px 1fr; min-height:0}
+
+  /* file tree */
+  .tree{border-right:1px solid var(--line); overflow-y:auto; padding:10px 0; background:var(--raise)}
+  .tree .th{font-family:var(--mono); font-size:9.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--faint); padding:4px 14px 8px}
+  .ti{display:flex; align-items:center; gap:7px; padding:5px 14px; font-size:13px; color:var(--ink); cursor:default}
+  .ti.dir{color:var(--soft); font-weight:600}
+  .ti.ind{padding-left:28px} .ti.ind2{padding-left:40px}
+  .ti:hover{background:var(--line-2)}
+  .ti.on{background:var(--accent-soft); box-shadow:inset 2px 0 0 var(--accent)}
+  .ti .gl{font-family:var(--mono); color:var(--faint); font-size:11px; width:13px; text-align:center}
+  .ti .badge{margin-left:auto; font-family:var(--mono); font-size:9px; letter-spacing:.04em; text-transform:uppercase; padding:2px 5px; border-radius:4px}
+  .badge.edit{background:var(--accent-soft); color:var(--accent)} .badge.new{background:var(--good-soft); color:var(--good)}
+
+  /* editor */
+  .editor{display:flex; flex-direction:column; min-height:0; background:var(--code-bg)}
+  .tabs{display:flex; align-items:center; gap:1px; background:#0F1219; border-bottom:1px solid #23283a; flex:0 0 auto; padding:0 6px}
+  .tab{display:flex; align-items:center; gap:8px; padding:9px 13px; font-size:12.5px; color:var(--code-dim); font-family:var(--mono)}
+  .tab.on{color:#fff; background:var(--code-bg); border-bottom:2px solid var(--accent)}
+  .tab .dot{width:6px;height:6px;border-radius:50%;background:var(--accent)}
+  .edscroll{flex:1 1 auto; overflow:auto}
+
+  /* agent proposal banner */
+  .propose{display:flex; align-items:center; gap:11px; padding:9px 13px; background:#191d2c; border-bottom:1px solid #23283a; color:#cfd5e8; font-size:12.5px}
+  .propose .av{width:20px;height:20px;border-radius:6px; display:grid; place-items:center; background:var(--accent-soft); color:var(--accent-2,#8C97FF); font-family:var(--serif); font-size:11px; font-weight:600}
+  .propose b{color:#fff}
+  .propose .acts{margin-left:auto; display:flex; gap:7px}
+  .propose .acts button{font-size:11.5px; font-family:var(--sans); border-radius:7px; padding:5px 11px; border:1px solid #2c324a; background:#1e2334; color:#c9cfe2; font-weight:600}
+  .propose .acts .ok{background:var(--accent); border-color:var(--accent); color:#fff}
+  .propose .acts .ok:hover{background:#4754f0}
+
+  pre.code{margin:0; font-family:var(--mono); font-size:12.5px; line-height:1.65; color:var(--code-tx); padding:10px 0}
+  .ln{display:grid; grid-template-columns:46px 1fr; gap:0}
+  .ln .g{color:var(--code-dim); text-align:right; padding:0 12px 0 0; user-select:none; border-right:1px solid #20263a}
+  .ln .t{padding:0 14px; white-space:pre; overflow-x:auto}
+  .ln.add{background:var(--add-bg)} .ln.add .g{color:#3fae74; background:#2e9e6610}
+  .ln.del{background:var(--del-bg)} .ln.del .t{opacity:.7}
+  .ln.add .t::before{content:"+ "; color:#3fae74} .ln.del .t::before{content:"- "; color:#e0635f}
+  .ln.ctx .t::before{content:"  "}
+  .k{color:#8C97FF} .s{color:#7ED3A6} .c{color:#5E657A} .f{color:#E0A85A} .n{color:#E08AA8}
+  .caret{display:inline-block; width:7px;height:14px; background:var(--accent); vertical-align:text-bottom; animation:blink 1.1s steps(1) infinite}
+
+  /* output / terminal */
+  .out{border-top:1px solid var(--line); background:var(--raise); display:flex; flex-direction:column; min-height:0}
+  .otabs{display:flex; gap:2px; padding:6px 10px 0; border-bottom:1px solid var(--line); flex:0 0 auto}
+  .ot{font-size:12px; font-weight:600; color:var(--soft); padding:7px 11px; border-radius:7px 7px 0 0}
+  .ot.on{color:var(--accent); background:var(--accent-soft)}
+  .opane{flex:1 1 auto; overflow:auto; padding:12px 14px}
+  .opane[hidden]{display:none}
+  .outgrid{display:grid; grid-template-columns:1fr 260px; gap:16px}
+  @media (max-width:1240px){ .outgrid{grid-template-columns:1fr} }
+  table.r{width:100%; border-collapse:collapse; font-size:12.5px}
+  table.r th{font-family:var(--mono); font-size:9px; letter-spacing:.08em; text-transform:uppercase; color:var(--faint); text-align:left; padding:0 9px 6px; border-bottom:1px solid var(--line)}
+  table.r td{padding:6px 9px; border-bottom:1px solid var(--line-2)} table.r td.g{font-family:var(--mono); font-weight:600} table.r td.n{font-family:var(--mono); text-align:right}
+  table.r .up{color:var(--crit)} table.r .dn{color:var(--accent)}
+  .plotc{border:1px solid var(--line); border-radius:8px; padding:8px; background:#FCFDFE}
+  .plotc .cap{font-family:var(--mono); font-size:9px; letter-spacing:.05em; text-transform:uppercase; color:var(--faint); margin:2px 2px 6px; display:flex; justify-content:space-between}
+  pre.term{margin:0; font-family:var(--mono); font-size:12px; line-height:1.7; color:#2a2f3c}
+  pre.term .p{color:var(--accent)} pre.term .ok{color:var(--good)} pre.term .dim{color:var(--faint)}
+
+  .wsfoot{grid-column:1/-1}
+  @keyframes breathe{0%,100%{opacity:.45}50%{opacity:1}}
+  @keyframes wave{0%,100%{opacity:.35;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+  @keyframes blink{0%,50%{opacity:1}51%,100%{opacity:0}}
+  @media (prefers-reduced-motion:reduce){*{animation:none !important}}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#0000001f; border-radius:6px; border:2px solid transparent; background-clip:padding-box}
+</style>
+
+<div class="top">
+  <div class="mark">Hermes</div>
+  <div class="modetog">
+    <button>Chat</button><button class="on">Workspace</button>
+  </div>
+  <div class="envs">
+    <span class="el">files in</span>
+    <span class="env on"><span class="d"></span>sandbox · sb-9f2a</span>
+    <span class="env"><span class="d"></span>cluster:/scratch</span>
+    <span class="env"><span class="d"></span>files (sftp)</span>
+    <span class="env"><span class="d"></span>local</span>
+  </div>
+  <div class="right">
+    <span class="watch"><span class="p"></span>watching Hermes work</span>
+  </div>
+</div>
+
+<div class="stage">
+
+  <!-- CONVERSE (the calm home surface, kept alongside) -->
+  <section class="chat">
+    <div class="scroll">
+      <div class="turn you"><div class="b">add a volcano plot to the analysis and save the figure</div></div>
+      <div class="turn her">
+        <div class="av">H</div>
+        <div class="bd">
+          <p>On it — adding a <code class="mono">volcano()</code> helper to <span class="mono">analysis.py</span> and writing <span class="mono">figures/volcano.png</span>. Proposed the edit on the right for you to review.</p>
+        </div>
+      </div>
+      <div class="turn">
+        <div class="focus">
+          <span class="ic">✎</span>
+          <span>Editing <code>analysis.py</code> · lines 22–34 <span class="live"><i></i><i></i><i></i></span><br>
+          <span style="color:var(--soft)">then re-running in sandbox sb-9f2a</span></span>
+        </div>
+      </div>
+    </div>
+    <div class="dock">
+      <div class="field">
+        <div class="ta" contenteditable="true" role="textbox" aria-label="Message Hermes" data-ph="Steer it, or edit the file yourself…"></div>
+        <button class="send" aria-label="Send">↑</button>
+      </div>
+    </div>
+  </section>
+
+  <!-- WORKSPACE -->
+  <section class="ws">
+    <div class="wstop">
+
+      <!-- file tree (over the active environment) -->
+      <nav class="tree" aria-label="Files">
+        <div class="th">sb-9f2a · /root/work</div>
+        <div class="ti dir"><span class="gl">▾</span>data</div>
+        <div class="ti ind"><span class="gl">◦</span>expression.parquet</div>
+        <div class="ti ind"><span class="gl">◦</span>adagrasib_auc.parquet</div>
+        <div class="ti on"><span class="gl">›_</span>analysis.py <span class="badge edit">editing</span></div>
+        <div class="ti"><span class="gl">◦</span>de.parquet</div>
+        <div class="ti dir"><span class="gl">▾</span>figures</div>
+        <div class="ti ind"><span class="gl">▦</span>volcano.png <span class="badge new">new</span></div>
+        <div class="ti"><span class="gl">◆</span>notebook.ipynb</div>
+      </nav>
+
+      <!-- editor with live agent diff -->
+      <div class="editor">
+        <div class="tabs">
+          <div class="tab on"><span class="dot"></span>analysis.py</div>
+          <div class="tab">notebook.ipynb</div>
+        </div>
+        <div class="propose">
+          <span class="av">H</span>
+          <span>Hermes proposes an edit — <b>+9 −1</b>, adds <span class="mono">volcano()</span></span>
+          <span class="acts">
+            <button class="ok">Accept</button>
+            <button>Modify</button>
+            <button>Discuss</button>
+          </span>
+        </div>
+        <div class="edscroll">
+          <pre class="code">
+<div class="ln ctx"><span class="g">19</span><span class="t"><span class="k">def</span> <span class="f">diff_express</span>(res, sens, test):</span></div>
+<div class="ln ctx"><span class="g">20</span><span class="t">    <span class="c"># Mann–Whitney per gene, BH-corrected</span></span></div>
+<div class="ln ctx"><span class="g">21</span><span class="t">    <span class="k">return</span> _bh(_mwu(res, sens, test))</span></div>
+<div class="ln del"><span class="g">22</span><span class="t"><span class="c"># TODO: plot</span></span></div>
+<div class="ln add"><span class="g">22</span><span class="t"><span class="k">def</span> <span class="f">volcano</span>(de, out=<span class="s">"figures/volcano.png"</span>):</span></div>
+<div class="ln add"><span class="g">23</span><span class="t">    x = de[<span class="s">"log2fc"</span>]; y = -np.<span class="f">log10</span>(de[<span class="s">"q"</span>])</span></div>
+<div class="ln add"><span class="g">24</span><span class="t">    hot = (de[<span class="s">"q"</span>] &lt; <span class="n">0.05</span>) &amp; (x.<span class="f">abs</span>() &gt; <span class="n">0.5</span>)</span></div>
+<div class="ln add"><span class="g">25</span><span class="t">    fig, ax = plt.<span class="f">subplots</span>(figsize=(<span class="n">4</span>,<span class="n">3</span>), dpi=<span class="n">200</span>)</span></div>
+<div class="ln add"><span class="g">26</span><span class="t">    ax.<span class="f">scatter</span>(x[~hot], y[~hot], s=<span class="n">6</span>, c=<span class="s">"#c2c9d6"</span>)</span></div>
+<div class="ln add"><span class="g">27</span><span class="t">    ax.<span class="f">scatter</span>(x[hot], y[hot], s=<span class="n">9</span>, c=<span class="s">"#d8453f"</span>)</span></div>
+<div class="ln add"><span class="g">28</span><span class="t">    <span class="f">_label</span>(ax, de, [<span class="s">"AXL"</span>,<span class="s">"CDH1"</span>])</span></div>
+<div class="ln add"><span class="g">29</span><span class="t">    fig.<span class="f">savefig</span>(out, bbox_inches=<span class="s">"tight"</span>)<span class="caret"></span></div>
+<div class="ln ctx"><span class="g">30</span><span class="t"></span></div>
+<div class="ln ctx"><span class="g">31</span><span class="t">de = <span class="f">diff_express</span>(res, sens, mannwhitneyu)</span></div>
+          </pre>
+        </div>
+      </div>
+    </div>
+
+    <!-- output / terminal -->
+    <div class="out">
+      <div class="otabs" role="tablist">
+        <button class="ot on" id="tab-out">Output</button>
+        <button class="ot" id="tab-term">Terminal</button>
+        <span style="margin-left:auto; align-self:center; font-family:var(--mono); font-size:10.5px; color:var(--faint); padding-right:6px">cell [3] · 0.8s · sandbox</span>
+      </div>
+      <div class="opane" id="pane-out">
+        <div class="outgrid">
+          <table class="r">
+            <thead><tr><th>Gene</th><th>log2FC</th><th>q</th></tr></thead>
+            <tbody>
+              <tr><td class="g">AXL</td><td class="n up">+2.41</td><td class="n">3.1e-6</td></tr>
+              <tr><td class="g">VIM</td><td class="n up">+1.88</td><td class="n">8.4e-6</td></tr>
+              <tr><td class="g">CDH1</td><td class="n dn">−1.73</td><td class="n">4.6e-5</td></tr>
+            </tbody>
+          </table>
+          <div class="plotc">
+            <div class="cap"><span>volcano.png</span><span>n=412</span></div>
+            <canvas id="v" width="440" height="300" style="width:100%;height:130px;display:block"></canvas>
+          </div>
+        </div>
+      </div>
+      <div class="opane" id="pane-term" hidden>
+        <pre class="term"><span class="p">work ▸</span> python analysis.py
+<span class="dim">loaded expression.parquet (1276 × 19193)</span>
+<span class="dim">resistant n=137 · sensitive n=138</span>
+<span class="ok">✓</span> de.parquet written · 214 genes q&lt;0.05
+<span class="ok">✓</span> figures/volcano.png written
+<span class="p">work ▸</span> <span class="caret" style="background:#2a2f3c"></span></pre>
+      </div>
+    </div>
+  </section>
+
+</div>
+
+<script>
+(function(){
+  // output/terminal tabs
+  var to=document.getElementById('tab-out'), tt=document.getElementById('tab-term');
+  var po=document.getElementById('pane-out'), pt=document.getElementById('pane-term');
+  function sel(which){
+    var o=which==='out';
+    to.classList.toggle('on',o); tt.classList.toggle('on',!o);
+    po.hidden=!o; pt.hidden=o;
+  }
+  to.addEventListener('click',function(){sel('out');});
+  tt.addEventListener('click',function(){sel('term');});
+
+  // environment pills (cosmetic switch)
+  document.querySelectorAll('.envs .env, .modetog button').forEach(function(el){
+    el.addEventListener('click',function(){
+      var sibs=el.parentElement.children;
+      for(var i=0;i<sibs.length;i++) sibs[i].classList && sibs[i].classList.remove('on');
+      el.classList.add('on');
+    });
+  });
+
+  // tiny volcano
+  var c=document.getElementById('v'); if(c){
+    var d=window.devicePixelRatio||1, r=c.getBoundingClientRect();
+    c.width=r.width*d; c.height=r.height*d; var x=c.getContext('2d'); x.scale(d,d);
+    var w=r.width,h=r.height; x.strokeStyle='#EEF1F6';
+    for(var i=1;i<5;i++){x.beginPath();x.moveTo(w*i/5,0);x.lineTo(w*i/5,h);x.stroke();}
+    x.strokeStyle='#d8453f44';x.setLineDash([4,4]);x.beginPath();x.moveTo(0,h*.36);x.lineTo(w,h*.36);x.stroke();x.setLineDash([]);
+    var s=7; function rnd(){s=(s*1103515245+12345)&0x7fffffff;return s/0x7fffffff;}
+    for(var p=0;p<120;p++){var fc=(rnd()-.5)*2,sg=rnd();var px=w*(.5+fc*.46),py=h*(1-sg*.9);
+      var hot=Math.abs(fc)>.55&&sg>.62;x.beginPath();x.arc(px,py,hot?3:2,0,7);
+      x.fillStyle=hot?(fc>0?'#d8453f':'#5765FF'):'#c2c9d6';x.globalAlpha=hot?.95:.5;x.fill();x.globalAlpha=1;}
+    x.fillStyle='#1A2030';x.font='600 9px ui-monospace,monospace';x.fillText('AXL',w*.78,h*.18);
+  }
+})();
+</script>
