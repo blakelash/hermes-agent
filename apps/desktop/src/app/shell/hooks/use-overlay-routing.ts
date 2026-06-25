@@ -2,7 +2,15 @@ import { useCallback, useEffect, useMemo, useRef } from 'react'
 import { useLocation, useNavigate } from 'react-router-dom'
 
 import { type CommandCenterSection } from '@/app/command-center'
-import { AGENTS_ROUTE, appViewForPath, COMMAND_CENTER_ROUTE, isOverlayView, NEW_CHAT_ROUTE } from '@/app/routes'
+import {
+  AGENTS_ROUTE,
+  appViewForPath,
+  COMMAND_CENTER_ROUTE,
+  DASHBOARD_ROUTE,
+  isOverlayView,
+  NEW_CHAT_ROUTE,
+  WORKSPACE_ROUTE
+} from '@/app/routes'
 
 const SECTIONS = ['sessions', 'system', 'usage'] as const
 
@@ -16,6 +24,8 @@ export function useOverlayRouting() {
   const agentsOpen = currentView === 'agents'
   const cronOpen = currentView === 'cron'
   const profilesOpen = currentView === 'profiles'
+  const dashboardOpen = currentView === 'dashboard'
+  const workspaceOpen = currentView === 'workspace'
   const chatOpen = currentView === 'chat'
   const overlayOpen = isOverlayView(currentView)
 
@@ -53,6 +63,8 @@ export function useOverlayRouting() {
   }, [closeOverlayToPreviousRoute, commandCenterOpen, navigate])
 
   const openAgents = useCallback(() => navigate(AGENTS_ROUTE), [navigate])
+  const openDashboard = useCallback(() => navigate(DASHBOARD_ROUTE), [navigate])
+  const openWorkspace = useCallback(() => navigate(WORKSPACE_ROUTE), [navigate])
 
   return {
     agentsOpen,
@@ -62,10 +74,14 @@ export function useOverlayRouting() {
     commandCenterOpen,
     cronOpen,
     currentView,
+    dashboardOpen,
     openAgents,
     openCommandCenterSection,
+    openDashboard,
+    openWorkspace,
     profilesOpen,
     settingsOpen,
-    toggleCommandCenter
+    toggleCommandCenter,
+    workspaceOpen
   }
 }
