@@ -1497,6 +1497,135 @@ def is_persistent_env(task_id: str) -> bool:
 
 
 
+def _env_backend_name(env: object) -> str:
+    """Derive the backend slug from the environment class name.
+
+    ``DockerEnvironment`` → ``docker``, ``LocalEnvironment`` → ``local``,
+    ``SSHEnvironment`` → ``ssh``, ``ManagedModalEnvironment`` → ``managedmodal``,
+    etc. (strip a trailing ``Environment``, lowercase the rest).
+    """
+    name = type(env).__name__
+    if name.endswith("Environment"):
+        name = name[: -len("Environment")]
+    return name.lower() or "unknown"
+
+
+def _env_label(backend: str, env: object) -> tuple[str, str]:
+    """Build a human label + optional detail string for a live environment.
+
+    Pulls only attributes confirmed to exist on each backend (see
+    tools/environments/*.py): docker ``_container_id``/``_image``, ssh
+    ``user``/``host``, modal/daytona ``_sandbox``, singularity
+    ``instance_id``/``image``, and the shared ``cwd``. Returns
+    ``(label, detail)`` — detail is "" when there is nothing extra to show.
+    """
+    cwd = str(getattr(env, "cwd", "") or "")
+
+    if backend == "docker":
+        cid = str(getattr(env, "_container_id", "") or "")
+        short = cid[:12]
+        image = str(getattr(env, "_image", "") or "")
+        label = f"docker · {short}" if short else "docker"
+        return label, image or cwd
+    if backend == "ssh":
+        user = str(getattr(env, "user", "") or "")
+        host = str(getattr(env, "host", "") or "")
+        target = f"{user}@{host}" if user and host else (host or user)
+        return (f"ssh · {target}" if target else "ssh"), cwd
+    if backend in {"modal", "managedmodal"}:
+        sandbox = getattr(env, "_sandbox", None)
+        sid = str(getattr(sandbox, "object_id", "") or "") if sandbox is not None else ""
+        return (f"modal · {sid}" if sid else "modal"), cwd
+    if backend == "daytona":
+        sandbox = getattr(env, "_sandbox", None)
+        sid = str(getattr(sandbox, "id", "") or "") if sandbox is not None else ""
+        return (f"daytona · {sid}" if sid else "daytona"), cwd
+    if backend == "singularity":
+        inst = str(getattr(env, "instance_id", "") or "")
+        image = str(getattr(env, "image", "") or "")
+        return (f"singularity · {inst}" if inst else "singularity"), image or cwd
+    # local + any backend we didn't special-case: identify by cwd.
+    if backend == "local":
+        try:
+            base = os.path.basename(cwd.rstrip("/")) or "~"
+        except Exception:
+            base = "~"
+        return f"local · {base}", cwd
+    return backend, cwd
+
+
+def get_active_environments_snapshot() -> list:
+    """Real snapshot of terminal environments for the operator Dashboard.
+
+    Returns one entry per LIVE environment in ``_active_environments`` plus, if
+    the configured ``terminal.backend`` (``TERMINAL_ENV``) is not represented by
+    any live env, a single ``"configured"`` row so the Dashboard shows the
+    backend the next command will start. Reflects the actual architecture only
+    — no fictional cluster/sftp peers.
+
+    Each entry:
+        {
+            "id": <task_id>,
+            "backend": <"local"|"docker"|"ssh"|"modal"|...>,
+            "label": <human label>,
+            "status": <"running"|"idle"|"configured">,
+            "detail": <cwd / image / host, may be "">,
+            "idle_seconds": <int seconds since last activity>,
+        }
+    """
+    now = time.time()
+    try:
+        from tools.process_registry import process_registry
+    except Exception:  # pragma: no cover - registry should always import
+        process_registry = None
+
+    with _env_lock:
+        items = list(_active_environments.items())
+        last_activity = dict(_last_activity)
+
+    rows: list = []
+    live_backends: set = set()
+    for task_id, env in items:
+        backend = _env_backend_name(env)
+        live_backends.add(backend)
+        label, detail = _env_label(backend, env)
+        running = False
+        if process_registry is not None:
+            try:
+                running = process_registry.has_active_processes(task_id)
+            except Exception:
+                running = False
+        last = last_activity.get(task_id)
+        idle_seconds = int(max(0, now - last)) if last else 0
+        rows.append(
+            {
+                "id": task_id,
+                "backend": backend,
+                "label": label,
+                "status": "running" if running else "idle",
+                "detail": detail,
+                "idle_seconds": idle_seconds,
+            }
+        )
+
+    # Surface the configured-but-not-started backend (e.g. docker set in
+    # config.yaml but no command has run yet). Only when nothing live already
+    # represents it — otherwise the live row is the truth.
+    configured = (os.getenv("TERMINAL_ENV", "local").strip().lower() or "local")
+    if configured not in live_backends:
+        rows.append(
+            {
+                "id": "configured",
+                "backend": configured,
+                "label": configured,
+                "status": "configured",
+                "detail": "not started",
+                "idle_seconds": 0,
+            }
+        )
+    return rows
+
+
 def cleanup_all_environments():
     """Clean up ALL active environments. Use with caution."""
     task_ids = list(_active_environments.keys())
