@@ -1467,10 +1467,58 @@ def _session_db(session: dict):
                 db.close()
 
 
+def _project_root_for_session(session: dict | None) -> str | None:
+    """Absolute root of the project a session belongs to, or None.
+
+    A session belongs to a project either by an explicit
+    ``session["project_slug"]`` binding or by its cwd sitting under a registered
+    project root (longest-prefix match via ``project_for_cwd``). Returns the
+    project root, or None when the session is project-less — in which case all
+    project gating is a no-op and behavior is exactly as before.
+    """
+    if not session:
+        return None
+    try:
+        from tools.projects import get_project, project_for_cwd
+
+        slug = str(session.get("project_slug") or "").strip()
+        if slug:
+            project = get_project(slug)
+            if project:
+                root = str(project.get("cwd") or "").strip()
+                return os.path.realpath(root) if root else None
+        # No explicit binding — detect by location.
+        cwd = str(session.get("cwd") or "").strip()
+        if cwd:
+            project = project_for_cwd(cwd)
+            if project:
+                root = str(project.get("cwd") or "").strip()
+                return os.path.realpath(root) if root else None
+    except Exception:
+        return None
+    return None
+
+
+def _is_within(root: str, path: str) -> bool:
+    """True when *path* is *root* itself or a descendant of it (realpath-based)."""
+    root_real = os.path.realpath(root)
+    path_real = os.path.realpath(path)
+    return path_real == root_real or path_real.startswith(root_real + os.sep)
+
+
 def _set_session_cwd(session: dict, cwd: str) -> str:
     resolved = os.path.abspath(os.path.expanduser(str(cwd)))
     if not os.path.isdir(resolved):
         raise ValueError(f"working directory does not exist: {cwd}")
+    # Project containment: when a session belongs to a project, its working
+    # directory may only move WITHIN that project's root (subdirectories are
+    # the per-session workspaces). Sessions with no project are unconstrained,
+    # so this gate is a no-op for the common single-folder case.
+    project_root = _project_root_for_session(session)
+    if project_root is not None and not _is_within(project_root, resolved):
+        raise ValueError(
+            f"working directory escapes project root: {cwd} not under {project_root}"
+        )
     session["cwd"] = resolved
     # An explicit user choice — persist it as the workspace (and let a later
     # lazy row creation persist it too, not the launch-dir fallback).
@@ -1489,6 +1537,49 @@ def _set_session_cwd(session: dict, cwd: str) -> str:
     except Exception:
         pass
     return resolved
+
+
+def _bind_session_project(session: dict, slug: str, sid: str = "") -> dict | None:
+    """Associate *session* with the registered project *slug*.
+
+    The session's working directory defaults to its own subdirectory
+    ``<project_cwd>/<sid>`` (created on bind) — the project root stays the
+    shared containment boundary so sibling/shared reads work, while each
+    session writes into its own subdir. If the session already has an explicit
+    cwd, it is kept provided it sits within the project root.
+
+    Sets ``session["project_slug"]`` and returns the project entry. Raises
+    ValueError on an unknown slug or an existing cwd that escapes the root.
+    """
+    slug = str(slug or "").strip()
+    if not slug:
+        return None
+    from tools.projects import get_project
+
+    project = get_project(slug)
+    if not project:
+        raise ValueError(f"unknown project slug: {slug}")
+    root = os.path.realpath(str(project.get("cwd") or ""))
+    current = session.get("cwd")
+    if current and session.get("explicit_cwd"):
+        # Honor an explicit per-session workspace, but only within the project.
+        if not _is_within(root, str(current)):
+            raise ValueError(
+                f"session cwd escapes project root: {current} not under {root}"
+            )
+    else:
+        # Default: a per-session subdirectory under the project root. Created on
+        # bind so the agent's first file/terminal op lands in a real directory.
+        sub = os.path.join(root, sid) if sid else root
+        try:
+            os.makedirs(sub, exist_ok=True)
+        except OSError as exc:
+            logger.warning("project subdir create failed (%s); using root", exc)
+            sub = root
+        session["cwd"] = sub
+        _register_session_cwd(session)
+    session["project_slug"] = slug
+    return project
 
 
 # ── Config I/O ────────────────────────────────────────────────────────
@@ -2826,7 +2917,11 @@ def _current_profile_name() -> str:
 # checkout), surfacing a one-click "update to align" prompt instead of failing
 # cryptically downstream. Bump whenever the desktop's backend contract changes.
 # v2: adds the file.attach RPC (remote-gateway non-image file upload).
-DESKTOP_BACKEND_CONTRACT = 2
+# v3: adds the operator Dashboard surface — projects.{list,create,rename}, the
+#     project param on files.{tree,read}, session project binding (project param
+#     on session.create / session.cwd.set), and the global dashboard.snapshot
+#     (cross-session needs tagged with session_id, projects[], summed cost).
+DESKTOP_BACKEND_CONTRACT = 3
 
 
 def _session_info(agent, session: dict | None = None) -> dict:
@@ -2883,6 +2978,10 @@ def _session_info(agent, session: dict | None = None) -> dict:
         "personality": str(personality or ""),
         "running": bool((session or {}).get("running")),
         "title": _session_live_title(session or {}, session_key) if session_key else "",
+        # Project this session is bound to (empty when unscoped). Lets the
+        # Dashboard show which project a session belongs to and keep the
+        # Workspace scoped to its root.
+        "project_slug": str((session or {}).get("project_slug") or ""),
         "desktop_contract": DESKTOP_BACKEND_CONTRACT,
         "version": "",
         "release_date": "",
@@ -4514,6 +4613,15 @@ def _(rid, params: dict) -> dict:
             "transport": current_transport() or _stdio_transport,
         }
         _register_session_cwd(_sessions[sid])
+        # Optional project association: bind the session to a registered project
+        # so its cwd is constrained to that project's root (per-session subdir).
+        # Unknown/invalid slug is non-fatal at create — we log and leave the
+        # session project-less rather than failing the whole composer paint.
+        if project_slug := str(params.get("project") or "").strip():
+            try:
+                _bind_session_project(_sessions[sid], project_slug, sid)
+            except ValueError as exc:
+                logger.warning("session.create: project bind failed: %s", exc)
     # NOTE: we intentionally do NOT persist a DB row here. Every TUI/desktop
     # launch (and every "New agent" / draft) opens a session here just to paint
     # the composer, so eagerly creating a row left an "Untitled" empty session
@@ -5000,6 +5108,15 @@ def _(rid, params: dict) -> dict:
     raw = str(params.get("cwd", "") or "").strip()
     if not raw:
         return _err(rid, 4016, "cwd required")
+    # An optional ``project`` rebinds the session before the cwd is applied, so
+    # the containment check in _set_session_cwd uses the new project's root.
+    if "project" in params:
+        try:
+            _bind_session_project(
+                session, str(params.get("project") or ""), str(params.get("session_id") or "")
+            )
+        except ValueError as e:
+            return _err(rid, 4018, str(e))
     try:
         cwd = _set_session_cwd(session, raw)
     except ValueError as e:
@@ -8400,26 +8517,237 @@ def _dashboard_cost(agent) -> dict:
     }
 
 
+@method("projects.list")
+def _(rid, params: dict) -> dict:
+    """List registered projects joined with live session grouping.
+
+    Each entry: {slug, name, cwd, sessionCount, status}. ``sessionCount`` is
+    the number of live sessions bound to the project; ``status`` summarizes
+    them (working > blocked > idle)."""
+    try:
+        from tools.projects import list_projects
+
+        return _ok(rid, {"projects": _projects_with_live_state(list_projects())})
+    except Exception as e:
+        return _err(rid, 5009, str(e))
+
+
+@method("projects.create")
+def _(rid, params: dict) -> dict:
+    """Register a project. The managed working dir is created under the active
+    Hermes home (``projects/<slug>``).
+
+    params: {name}. Returns {project: {slug, name, cwd}}."""
+    try:
+        from tools.projects import create_project
+
+        project = create_project(str(params.get("name") or ""))
+        return _ok(rid, {"project": project})
+    except ValueError as e:
+        return _err(rid, 4019, str(e))
+    except Exception as e:
+        return _err(rid, 5010, str(e))
+
+
+@method("projects.rename")
+def _(rid, params: dict) -> dict:
+    """Rename a project (slug + cwd unchanged).
+
+    params: {slug, name}. Returns {project: {...}}."""
+    try:
+        from tools.projects import rename_project
+
+        project = rename_project(
+            str(params.get("slug") or ""), str(params.get("name") or "")
+        )
+        return _ok(rid, {"project": project})
+    except ValueError as e:
+        return _err(rid, 4019, str(e))
+    except Exception as e:
+        return _err(rid, 5011, str(e))
+
+
+# Project status precedence when several sessions share one project.
+_PROJECT_STATUS_RANK = {"working": 2, "blocked": 1, "idle": 0}
+
+
+def _session_project_slug(session: dict) -> str:
+    """Slug of the project a live session belongs to, or "".
+
+    Prefers an explicit ``project_slug`` binding; otherwise detects by the
+    session's cwd sitting under a registered project root.
+    """
+    slug = str(session.get("project_slug") or "").strip()
+    if slug:
+        return slug
+    cwd = str(session.get("cwd") or "").strip()
+    if cwd:
+        try:
+            from tools.projects import project_for_cwd
+
+            project = project_for_cwd(cwd)
+            if project:
+                return str(project.get("slug") or "")
+        except Exception:
+            return ""
+    return ""
+
+
+def _projects_with_live_state(projects: list) -> list:
+    """Join the project registry with live session grouping + rolled-up status.
+
+    Per project: ``{slug, name, cwd, sessionCount, sessionIds, status}``. The
+    session keys are camelCase to match the frontend ``Project`` interface,
+    which maps this object 1:1 (the rest of the snapshot — ``needs[].session_id``,
+    ``cost`` — stays snake_case as the wire default). ``sessionIds`` is the list
+    of live session_ids grouped under the project so the frontend lists a
+    project's sessions without re-deriving from cwd prefixes. ``status`` is
+    derived from the project's live sessions — ``working`` if any session is
+    running OR has an active subagent, ``blocked`` if any is waiting on the
+    operator (pending approval / prompt), else ``idle``. Precedence:
+    working > blocked > idle.
+    """
+    try:
+        from tools.approval import has_blocking_approval
+    except Exception:
+        has_blocking_approval = lambda _key: False  # noqa: E731
+    try:
+        from tools.delegate_tool import list_active_subagents
+
+        subagents_active = bool(list_active_subagents())
+    except Exception:
+        subagents_active = False
+
+    session_ids: dict[str, list[str]] = {}
+    status: dict[str, str] = {}
+    with _sessions_lock:
+        live = list(_sessions.items())
+    for sid, session in live:
+        slug = _session_project_slug(session)
+        if not slug:
+            continue
+        session_ids.setdefault(slug, []).append(sid)
+        live_status = _session_live_status(sid, session)
+        key = str(session.get("session_key") or "")
+        if live_status == "working" or (subagents_active and session.get("running")):
+            st = "working"
+        elif live_status == "waiting" or (key and has_blocking_approval(key)):
+            st = "blocked"
+        else:
+            st = "idle"
+        if _PROJECT_STATUS_RANK[st] > _PROJECT_STATUS_RANK.get(status.get(slug, "idle"), 0):
+            status[slug] = st
+    out: list = []
+    for p in projects:
+        slug = str(p.get("slug") or "")
+        sids = session_ids.get(slug, [])
+        out.append(
+            {
+                "slug": slug,
+                "name": p.get("name") or slug,
+                "cwd": p.get("cwd") or "",
+                "sessionCount": len(sids),
+                "sessionIds": sids,
+                "status": status.get(slug, "idle"),
+            }
+        )
+    return out
+
+
+def _global_needs() -> list:
+    """Pending approvals across EVERY session, each tagged with session_id.
+
+    Sources from ``list_all_pending_approvals`` (iterates all approval queues)
+    and maps each queue's ``session_key`` to its live ``session_id`` — the id
+    the Dashboard passes to ``approval.respond``. A pending entry whose session
+    is no longer live (key has no live sid) is dropped, since it can't be
+    responded to from the Dashboard.
+    """
+    from tools.approval import list_all_pending_approvals
+
+    with _sessions_lock:
+        key_to_sid = {
+            str(s.get("session_key")): sid
+            for sid, s in _sessions.items()
+            if s.get("session_key")
+        }
+    needs: list = []
+    for need in list_all_pending_approvals():
+        key = str(need.pop("session_key", ""))
+        sid = key_to_sid.get(key)
+        if not sid:
+            continue
+        need["session_id"] = sid
+        needs.append(need)
+    return needs
+
+
+def _global_cost() -> dict:
+    """Profile-global cost + token totals from the persisted session store.
+
+    A lightweight SessionDB aggregate (``sum_session_cost``) over non-archived
+    sessions, rather than walking every live agent. Reflects PERSISTED cost; a
+    live agent's not-yet-flushed in-flight spend is not included.
+    """
+    zero = {"cost_usd": 0.0, "input": 0, "output": 0, "total": 0, "calls": 0}
+    db = _get_db()
+    if db is None:
+        return zero
+    try:
+        return db.sum_session_cost()
+    except Exception:
+        logger.debug("global cost sum failed", exc_info=True)
+        return zero
+
+
 @method("dashboard.snapshot")
 def _(rid, params: dict) -> dict:
-    """One-shot operator Dashboard snapshot: pending approvals (``needs``),
-    the running subagent roster (``specialists``), session cost/token totals
-    (``cost``), and a server ``timestamp``."""
-    session, err = _sess_nowait(params, rid)
-    if err:
-        return err
+    """Operator Dashboard snapshot.
+
+    Two modes, selected by whether a ``session_id`` is supplied:
+
+    - Per-session (``session_id`` given): pending approvals for that session
+      (``needs``), the running subagent roster (``specialists``), terminal
+      ``environments``, the registered ``projects``, that session's ``cost``,
+      and a ``timestamp``.
+    - Global (no ``session_id`` — the default): cross-session ``needs`` (each
+      tagged with its ``session_id``), the registered ``projects`` joined with
+      live session grouping (``session_count`` + ``status``), the subagent
+      roster, environments, the profile-global ``cost`` (summed from the
+      session store), and a ``timestamp``.
+    """
     try:
-        from tools.approval import list_pending_approvals
         from tools.delegate_tool import list_active_subagents
         from tools.terminal_tool import get_active_environments_snapshot
+        from tools.projects import list_projects
 
+        sid = str(params.get("session_id") or "").strip()
+        if sid:
+            session, err = _sess_nowait(params, rid)
+            if err:
+                return err
+            from tools.approval import list_pending_approvals
+
+            return _ok(
+                rid,
+                {
+                    "needs": list_pending_approvals(session["session_key"]),
+                    "specialists": list_active_subagents(),
+                    "environments": get_active_environments_snapshot(),
+                    "projects": _projects_with_live_state(list_projects()),
+                    "cost": _dashboard_cost(session.get("agent")),
+                    "timestamp": time.time(),
+                },
+            )
+        # Global: no session bound — span every live session.
         return _ok(
             rid,
             {
-                "needs": list_pending_approvals(session["session_key"]),
+                "needs": _global_needs(),
                 "specialists": list_active_subagents(),
                 "environments": get_active_environments_snapshot(),
-                "cost": _dashboard_cost(session.get("agent")),
+                "projects": _projects_with_live_state(list_projects()),
+                "cost": _global_cost(),
                 "timestamp": time.time(),
             },
         )
@@ -8427,14 +8755,28 @@ def _(rid, params: dict) -> dict:
         return _err(rid, 5006, str(e))
 
 
-def _files_root(session: dict) -> str:
-    """Absolute workspace root for files.* on this session.
+def _files_root(session: dict, project: str = "") -> str:
+    """Absolute containment root for files.* on this session.
 
-    Reuses the same cwd the agent's file tools resolve against: the session's
-    registered task-cwd override (keyed by ``session_key``). We register it
-    defensively here in case files.* is called before the agent build wired it,
-    then return the validated session cwd as the containment root.
+    When *project* is given (a project SLUG or an absolute project CWD), the
+    root is that registered project's root — so the Dashboard can browse the
+    whole project (sibling/shared subdirs) regardless of which subdir a session
+    is sitting in. Otherwise reuses the session's working dir (the same anchor
+    the agent's file tools resolve against); we register it defensively in case
+    files.* is called before the agent build wired it.
+
+    Raises ValueError when *project* is given but resolves to no registered
+    project.
     """
+    project = str(project or "").strip()
+    if project:
+        from tools.projects import get_project, project_for_cwd
+
+        # Accept either a slug or an absolute cwd that lands under a project.
+        entry = get_project(project) or project_for_cwd(project)
+        if not entry:
+            raise ValueError(f"unknown project: {project}")
+        return os.path.realpath(str(entry.get("cwd") or ""))
     _register_session_cwd(session)
     return _session_cwd(session)
 
@@ -8469,7 +8811,10 @@ def _(rid, params: dict) -> dict:
     if err:
         return err
     try:
-        root = _files_root(session)
+        try:
+            root = _files_root(session, params.get("project", ""))
+        except ValueError as e:
+            return _err(rid, 4019, str(e))
         target = _resolve_within_root(root, params.get("path", ""))
         if target is None:
             return _err(rid, 4006, "path escapes workspace root")
@@ -8514,7 +8859,10 @@ def _(rid, params: dict) -> dict:
     try:
         from tools.file_tools import read_file_tool
 
-        root = _files_root(session)
+        try:
+            root = _files_root(session, params.get("project", ""))
+        except ValueError as e:
+            return _err(rid, 4019, str(e))
         resolved = _resolve_within_root(root, params.get("path", ""))
         if resolved is None:
             return _err(rid, 4006, "path escapes workspace root")

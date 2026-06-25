@@ -6,8 +6,10 @@ import {
   $events,
   $findings,
   $needs,
+  $projects,
   $specialists,
   type NeedItem,
+  type ProjectStatus,
   type SpecialistStatus
 } from '@/store/dashboard'
 import { $activeSessionId } from '@/store/session'
@@ -16,6 +18,7 @@ import { $subagentsBySession } from '@/store/subagents'
 import { LiveLog, type LiveLogLine, type LiveLogTone } from './live-log'
 
 interface StreamViewProps {
+  onOpenProject?: (slug: string) => void
   onResolveNeed: (item: NeedItem, choice: string, toast: string) => void
 }
 
@@ -26,13 +29,20 @@ const STATUS_COLOR: Record<SpecialistStatus, string> = {
   working: 'var(--hd-accent)'
 }
 
+const PROJECT_STATUS_COLOR: Record<ProjectStatus, string> = {
+  blocked: 'var(--hd-crit)',
+  idle: 'var(--hd-faint)',
+  working: 'var(--hd-accent)'
+}
+
 function formatClock(ms: number): string {
   return new Date(ms).toLocaleTimeString('en-GB', { hour: '2-digit', minute: '2-digit' })
 }
 
-export function StreamView({ onResolveNeed }: StreamViewProps) {
+export function StreamView({ onOpenProject, onResolveNeed }: StreamViewProps) {
   const needs = useStore($needs)
   const specialists = useStore($specialists)
+  const projects = useStore($projects)
   const events = useStore($events)
   const findings = useStore($findings)
   const environments = useStore($environments)
@@ -229,6 +239,33 @@ export function StreamView({ onResolveNeed }: StreamViewProps) {
               ))
             ) : (
               <div className="hd-empty">No specialists are active right now.</div>
+            )}
+          </section>
+
+          <section className="hd-card">
+            <div className="hd-card-head">
+              <span className="hd-microlabel">Active projects</span>
+            </div>
+            {projects.length > 0 ? (
+              projects.map(p => (
+                <div
+                  className="hd-row"
+                  key={p.slug}
+                  onClick={onOpenProject ? () => onOpenProject(p.slug) : undefined}
+                  style={onOpenProject ? { cursor: 'pointer' } : undefined}
+                >
+                  <span
+                    className={`hd-dot${p.status === 'working' ? ' hd-anim-breathe' : ''}`}
+                    style={{ background: PROJECT_STATUS_COLOR[p.status], height: 7, width: 7 }}
+                  />
+                  <span className="hd-row-name">{p.name}</span>
+                  <span className="hd-row-status" style={{ color: 'var(--hd-faint)' }}>
+                    {p.sessionCount} {p.sessionCount === 1 ? 'thread' : 'threads'}
+                  </span>
+                </div>
+              ))
+            ) : (
+              <div className="hd-empty">No projects yet.</div>
             )}
           </section>
 

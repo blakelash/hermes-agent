@@ -4,9 +4,15 @@ import { useStore } from '@nanostores/react'
 import { useCallback, useEffect } from 'react'
 
 import type { HermesGateway } from '@/hermes'
-import { $dashboardView, type NeedItem, removeNeed, setDashboardView, showToast } from '@/store/dashboard'
+import {
+  $dashboardView,
+  type NeedItem,
+  removeNeed,
+  setDashboardView,
+  setWorkspaceProject,
+  showToast
+} from '@/store/dashboard'
 import { notifyError } from '@/store/notifications'
-import { $activeSessionId } from '@/store/session'
 
 import { StreamView } from './stream-view'
 import { DashboardToast } from './toast'
@@ -22,7 +28,6 @@ interface DashboardViewProps {
 
 export function DashboardView({ gateway, onClose, onOpenWorkspace, requestGateway }: DashboardViewProps) {
   const view = useStore($dashboardView)
-  const activeSessionId = useStore($activeSessionId)
   const { refresh } = useDashboardData(gateway, requestGateway)
 
   useEffect(() => {
@@ -52,10 +57,11 @@ export function DashboardView({ gateway, onClose, onOpenWorkspace, requestGatewa
       showToast(toast)
 
       try {
+        // The inbox spans sessions — route the response to the need's own session.
         const params: Record<string, unknown> = { choice, request_id: item.id }
 
-        if (activeSessionId) {
-          params.session_id = activeSessionId
+        if (item.sessionId) {
+          params.session_id = item.sessionId
         }
 
         await requestGateway('approval.respond', params)
@@ -64,13 +70,28 @@ export function DashboardView({ gateway, onClose, onOpenWorkspace, requestGatewa
         void refresh()
       }
     },
-    [activeSessionId, onOpenWorkspace, refresh, requestGateway]
+    [onOpenWorkspace, refresh, requestGateway]
   )
+
+  const openProject = useCallback(
+    (slug: string) => {
+      setWorkspaceProject(slug)
+      onOpenWorkspace()
+    },
+    [onOpenWorkspace]
+  )
+
+  // The plain "Workspace →" button opens the active session's workspace, not a
+  // previously-focused project.
+  const openWorkspaceGeneric = useCallback(() => {
+    setWorkspaceProject(null)
+    onOpenWorkspace()
+  }, [onOpenWorkspace])
 
   return (
     <div className="hermes-dashboard hd-root">
-      <DashboardTopBar onOpenWorkspace={onOpenWorkspace} onView={setDashboardView} view={view} />
-      <StreamView onResolveNeed={resolveNeed} />
+      <DashboardTopBar onOpenWorkspace={openWorkspaceGeneric} onView={setDashboardView} view={view} />
+      <StreamView onOpenProject={openProject} onResolveNeed={resolveNeed} />
       <DashboardToast />
     </div>
   )

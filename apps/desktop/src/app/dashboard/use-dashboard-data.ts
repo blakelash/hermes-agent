@@ -1,4 +1,3 @@
-import { useStore } from '@nanostores/react'
 import { useCallback, useEffect, useRef } from 'react'
 
 import type { HermesGateway } from '@/hermes'
@@ -7,21 +6,33 @@ import {
   type EnvRow,
   type EnvStatus,
   type NeedItem,
+  type Project,
+  type ProjectStatus,
   setDashboardCost,
   setEnvironments,
   setNeeds,
+  setProjects,
   setSpecialists,
   type Specialist,
   type SpecialistStatus
 } from '@/store/dashboard'
-import { $activeSessionId } from '@/store/session'
 
 interface RawApproval {
   request_id?: string
+  session_id?: string
   command?: string
   description?: string
   kind?: string
   meta?: string
+}
+
+// projects.list / dashboard.snapshot return camelCase (matches the Project interface).
+interface RawProject {
+  slug?: string
+  name?: string
+  cwd?: string
+  sessionCount?: number
+  status?: string
 }
 
 interface RawSpecialist {
@@ -50,6 +61,7 @@ interface RawEnvironment {
 interface SnapshotResponse {
   needs?: RawApproval[]
   specialists?: RawSpecialist[]
+  projects?: RawProject[]
   cost?: RawCost
   environments?: RawEnvironment[]
 }
@@ -63,6 +75,7 @@ function mapNeeds(raw: RawApproval[]): NeedItem[] {
 
       return {
         id: a.request_id as string,
+        sessionId: a.session_id,
         kind: 'APPROVAL',
         title,
         detail: a.command,
@@ -195,6 +208,31 @@ function mapEnvironments(raw: RawEnvironment[]): EnvRow[] {
     })
 }
 
+function projectStatus(status?: string): ProjectStatus {
+  switch (status) {
+    case 'blocked':
+      return 'blocked'
+
+    case 'working':
+      return 'working'
+
+    default:
+      return 'idle'
+  }
+}
+
+function mapProjects(raw: RawProject[]): Project[] {
+  return raw
+    .filter(p => typeof p.slug === 'string')
+    .map(p => ({
+      slug: p.slug as string,
+      name: p.name?.trim() || (p.slug as string),
+      cwd: p.cwd ?? '',
+      sessionCount: typeof p.sessionCount === 'number' ? p.sessionCount : 0,
+      status: projectStatus(p.status)
+    }))
+}
+
 /**
  * Seeds the dashboard store from `dashboard.snapshot` and keeps it live by
  * re-fetching on `approval.request`, `dashboard.update`, and `subagent.*`
@@ -206,26 +244,22 @@ export function useDashboardData(
   gateway: HermesGateway | null,
   requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
 ) {
-  const activeSessionId = useStore($activeSessionId)
   const refreshTimer = useRef<number | undefined>(undefined)
 
   const refresh = useCallback(async () => {
     try {
-      const params: Record<string, unknown> = {}
-
-      if (activeSessionId) {
-        params.session_id = activeSessionId
-      }
-
-      const snapshot = await requestGateway<SnapshotResponse>('dashboard.snapshot', params)
+      // Home is profile-global: no session_id → the snapshot aggregates needs
+      // across all sessions, the fleet, environments, projects, and cost.
+      const snapshot = await requestGateway<SnapshotResponse>('dashboard.snapshot', {})
       setNeeds(mapNeeds(snapshot.needs ?? []))
       setSpecialists(mapSpecialists(snapshot.specialists ?? []))
+      setProjects(mapProjects(snapshot.projects ?? []))
       setEnvironments(mapEnvironments(snapshot.environments ?? []))
       setDashboardCost(mapCost(snapshot.cost))
     } catch {
       // Backend RPC not available yet — keep empty states.
     }
-  }, [activeSessionId, requestGateway])
+  }, [requestGateway])
 
   const scheduleRefresh = useCallback(() => {
     window.clearTimeout(refreshTimer.current)

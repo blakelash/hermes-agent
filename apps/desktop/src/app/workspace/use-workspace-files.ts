@@ -73,13 +73,15 @@ function normalizeContent(raw: unknown): string {
 }
 
 /**
- * Loads the active environment's file tree and the selected file's contents
- * via the gateway `files.tree` / `files.read` RPCs. Degrades gracefully when
- * the backend doesn't expose them yet (empty tree + a status flag).
+ * Loads a project's file tree (or the session's cwd when unscoped) and the
+ * selected file's contents via the gateway `files.tree` / `files.read` RPCs.
+ * When `project` (slug) is given, the listing is rooted at the project root
+ * (independent of the session subdir); `session_id` still scopes the subdir.
+ * Degrades gracefully when the backend lacks these RPCs (empty tree + flag).
  */
 export function useWorkspaceFiles(
   requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>,
-  env: string,
+  project: string | undefined,
   sessionId: null | string
 ) {
   const [tree, setTree] = useState<WorkspaceFile[]>([])
@@ -87,16 +89,24 @@ export function useWorkspaceFiles(
   const [content, setContent] = useState<null | string>(null)
   const [readError, setReadError] = useState(false)
 
-  useEffect(() => {
-    let cancelled = false
+  const baseParams = useCallback((): Record<string, unknown> => {
+    const params: Record<string, unknown> = {}
 
-    const params: Record<string, unknown> = { env }
+    if (project) {
+      params.project = project
+    }
 
     if (sessionId) {
       params.session_id = sessionId
     }
 
-    requestGateway<unknown>('files.tree', params)
+    return params
+  }, [project, sessionId])
+
+  useEffect(() => {
+    let cancelled = false
+
+    requestGateway<unknown>('files.tree', baseParams())
       .then(raw => {
         if (!cancelled) {
           setTree(normalizeTree(raw))
@@ -113,7 +123,7 @@ export function useWorkspaceFiles(
     return () => {
       cancelled = true
     }
-  }, [env, requestGateway, sessionId])
+  }, [baseParams, requestGateway])
 
   const readFile = useCallback(
     async (path: string) => {
@@ -121,11 +131,7 @@ export function useWorkspaceFiles(
       setReadError(false)
 
       try {
-        const params: Record<string, unknown> = { env, path }
-
-        if (sessionId) {
-          params.session_id = sessionId
-        }
+        const params = { ...baseParams(), path }
 
         const raw = await requestGateway<unknown>('files.read', params)
         const obj = raw as Record<string, unknown> | null
@@ -143,7 +149,7 @@ export function useWorkspaceFiles(
         setReadError(true)
       }
     },
-    [env, requestGateway, sessionId]
+    [baseParams, requestGateway]
   )
 
   return { content, readError, readFile, tree, treeError }

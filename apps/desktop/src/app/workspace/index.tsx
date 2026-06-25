@@ -8,9 +8,12 @@ import { chatMessageText } from '@/lib/chat-messages'
 import {
   $environments,
   $needs,
+  $projects,
   $workspaceEditApplied,
   $workspaceEnv,
   $workspaceOutTab,
+  $workspaceProject,
+  $workspaceSession,
   type EnvRow,
   removeNeed,
   setWorkspaceEditApplied,
@@ -56,17 +59,31 @@ export function WorkspaceView({ gateway, onClose, onOpenStream, requestGateway }
   const needs = useStore($needs)
   const messages = useStore($messages)
   const environments = useStore($environments)
+  const projects = useStore($projects)
+  const workspaceProject = useStore($workspaceProject)
+  const workspaceSession = useStore($workspaceSession)
   const activeSessionId = useStore($activeSessionId)
 
-  // Populate the shared dashboard store (needs/specialists/environments) so the
-  // env switcher reflects reality even when the Workspace is opened directly.
+  // Populate the shared dashboard store (needs/specialists/environments/projects)
+  // so the Workspace reflects reality even when opened directly.
   useDashboardData(gateway, requestGateway)
+
+  // The Workspace is scoped to a project's filesystem; the file tree roots at
+  // the project (when one is focused), and the session focus drives the subdir.
+  const focusedProject = workspaceProject ? projects.find(p => p.slug === workspaceProject) : undefined
+  const focusedSessionId = workspaceSession ?? activeSessionId
 
   const envs = environments.length > 0 ? environments : FALLBACK_ENVS
   const activeEnvId = envs.some(e => e.id === env) ? env : envs[0]?.id
 
   const [activeFile, setActiveFile] = useState<null | string>(null)
-  const { content, readError, readFile, tree, treeError } = useWorkspaceFiles(requestGateway, env, activeSessionId)
+
+  const { content, readError, readFile, tree, treeError } = useWorkspaceFiles(
+    requestGateway,
+    focusedProject?.slug,
+    focusedSessionId
+  )
+
   const composerRef = useRef<HTMLDivElement>(null)
 
   useEffect(() => {
@@ -104,9 +121,10 @@ export function WorkspaceView({ gateway, onClose, onOpenStream, requestGateway }
 
     try {
       const params: Record<string, unknown> = { choice: 'once', request_id: pendingNeed.id }
+      const sid = pendingNeed.sessionId ?? activeSessionId
 
-      if (activeSessionId) {
-        params.session_id = activeSessionId
+      if (sid) {
+        params.session_id = sid
       }
 
       await requestGateway('approval.respond', params)
@@ -125,9 +143,10 @@ export function WorkspaceView({ gateway, onClose, onOpenStream, requestGateway }
 
     try {
       const params: Record<string, unknown> = { choice: 'deny', request_id: pendingNeed.id }
+      const sid = pendingNeed.sessionId ?? activeSessionId
 
-      if (activeSessionId) {
-        params.session_id = activeSessionId
+      if (sid) {
+        params.session_id = sid
       }
 
       await requestGateway('approval.respond', params)
@@ -282,7 +301,9 @@ export function WorkspaceView({ gateway, onClose, onOpenStream, requestGateway }
           <div className="hd-ws-editor-area">
             {/* FILE TREE */}
             <nav className="hd-ws-tree">
-              <div className="hd-tree-head">{envs.find(e => e.id === activeEnvId)?.label ?? activeEnvId}</div>
+              <div className="hd-tree-head">
+                {focusedProject ? focusedProject.name : (envs.find(e => e.id === activeEnvId)?.label ?? activeEnvId)}
+              </div>
               {tree.length > 0 ? (
                 tree.map(file => (
                   <div

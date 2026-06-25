@@ -220,3 +220,38 @@ def test_request_id_is_stable_across_snapshots():
         assert first == second == e1.request_id
     finally:
         _clear(sk)
+
+
+class TestListAllPendingApprovals:
+    def test_spans_all_queues_and_tags_session_key(self):
+        ka, kb = "sess-all-a", "sess-all-b"
+        _clear(ka)
+        _clear(kb)
+        try:
+            ea = _make_entry(approval, ka, {"command": "a", "description": "da"})
+            eb1 = _make_entry(approval, kb, {"command": "b1", "description": "db1"})
+            eb2 = _make_entry(approval, kb, {"command": "b2", "description": "db2"})
+
+            snap = approval.list_all_pending_approvals()
+            mine = [s for s in snap if s.get("session_key") in {ka, kb}]
+            # Every entry carries its owning session_key + request_id.
+            by_key: dict[str, list] = {}
+            for s in mine:
+                assert s["request_id"]
+                by_key.setdefault(s["session_key"], []).append(s["request_id"])
+            assert by_key[ka] == [ea.request_id]
+            assert by_key[kb] == [eb1.request_id, eb2.request_id]
+        finally:
+            _clear(ka)
+            _clear(kb)
+
+    def test_non_destructive(self):
+        sk = "sess-all-nd"
+        _clear(sk)
+        try:
+            _make_entry(approval, sk, {"command": "x", "description": "d"})
+            approval.list_all_pending_approvals()
+            # Reading does not consume the queue.
+            assert len(approval.list_pending_approvals(sk)) == 1
+        finally:
+            _clear(sk)

@@ -21,13 +21,16 @@ export type NeedKind = 'APPROVAL' | 'BLOCKED' | 'DECISION' | 'REVIEW'
 export interface NeedItem {
   /** The approval `request_id` from the gateway (stable, used to respond). */
   id: string
+  /** The session this approval belongs to — the Home inbox spans sessions, so
+   *  `approval.respond` must target this id, not the active session. */
+  sessionId?: string
   kind: NeedKind
   title: string
   detail?: string
   meta?: string
   primaryLabel: string
   secondaryLabel: string
-  /** Choice strings sent back via `approvals.respond`. */
+  /** Choice strings sent back via `approval.respond`. */
   primaryChoice: string
   secondaryChoice: string
   /** Toast copy on each action. */
@@ -35,6 +38,17 @@ export interface NeedItem {
   secondaryToast: string
   /** REVIEW items route to the Workspace instead of resolving inline. */
   opensWorkspace?: boolean
+}
+
+// ---- Projects (real: project registry + live session grouping) ----
+export type ProjectStatus = 'blocked' | 'idle' | 'working'
+
+export interface Project {
+  slug: string
+  name: string
+  cwd: string
+  sessionCount: number
+  status: ProjectStatus
 }
 
 // ---- Specialists / "working now" (real: active subagents) ----
@@ -97,6 +111,7 @@ export const setDashboardView = (view: DashboardView) => {
 // ---- Live data atoms ----
 export const $needs = atom<NeedItem[]>([])
 export const $specialists = atom<Specialist[]>([])
+export const $projects = atom<Project[]>([])
 export const $findings = atom<Finding[]>([])
 export const $events = atom<TimelineEvent[]>([])
 export const $environments = atom<EnvRow[]>([])
@@ -107,6 +122,7 @@ export const $needsCount = computed($needs, needs => needs.length)
 export const setNeeds = (needs: NeedItem[]) => $needs.set(needs)
 export const removeNeed = (id: string) => $needs.set($needs.get().filter(n => n.id !== id))
 export const setSpecialists = (list: Specialist[]) => $specialists.set(list)
+export const setProjects = (list: Project[]) => $projects.set(list)
 export const setEnvironments = (rows: EnvRow[]) => $environments.set(rows)
 export const setDashboardCost = (cost: DashboardCost | null) => $dashboardCost.set(cost)
 
@@ -128,11 +144,17 @@ export const clearToast = () => {
 // ---- Workspace state ----
 export type WorkspaceOutTab = 'out' | 'term'
 
+// Which project + session the Workspace is focused on (set when opening it from
+// a project click or a need's "Open diff"). Null = fall back to active session.
+export const $workspaceProject = atom<null | string>(null)
+export const $workspaceSession = atom<null | string>(null)
 export const $workspaceEnv = atom<string>('sandbox')
 export const $workspaceOutTab = atom<WorkspaceOutTab>('out')
 export const $workspaceEditApplied = atom<boolean>(false)
 export const $workspaceActiveFile = atom<string>('analysis.py')
 
+export const setWorkspaceProject = (slug: null | string) => $workspaceProject.set(slug)
+export const setWorkspaceSession = (id: null | string) => $workspaceSession.set(id)
 export const setWorkspaceEnv = (id: string) => $workspaceEnv.set(id)
 export const setWorkspaceOutTab = (tab: WorkspaceOutTab) => $workspaceOutTab.set(tab)
 export const setWorkspaceEditApplied = (applied: boolean) => $workspaceEditApplied.set(applied)

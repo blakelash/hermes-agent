@@ -770,6 +770,29 @@ def list_pending_approvals(session_key: str) -> list[dict]:
     return snapshot
 
 
+def list_all_pending_approvals() -> list[dict]:
+    """Non-destructive snapshot of pending approvals across EVERY session.
+
+    Powers the profile-global Dashboard inbox: returns each pending entry from
+    every queue in ``_gateway_queues``, tagged with its owning ``session_key``
+    (plus ``request_id`` and the underlying approval data). The gateway maps
+    ``session_key`` → the live ``session_id`` before sending to clients, since
+    ``approval.respond`` is addressed by ``session_id`` + ``request_id``.
+
+    Thread-safe; does not mutate or resolve anything.
+    """
+    with _lock:
+        items = [(key, list(queue)) for key, queue in _gateway_queues.items()]
+    snapshot: list[dict] = []
+    for session_key, queue in items:
+        for entry in queue:
+            item = dict(entry.data or {})
+            item["request_id"] = entry.request_id
+            item["session_key"] = session_key
+            snapshot.append(item)
+    return snapshot
+
+
 def register_gateway_notify(session_key: str, cb) -> None:
     """Register a per-session callback for sending approval requests to the user.
 
