@@ -2,15 +2,23 @@
 
 Uses ``Sandbox.create()`` + ``Sandbox.exec()`` instead of the older runtime
 wrapper, while preserving Hermes' persistent snapshot behavior across sessions.
+
+Modal calls use the **blocking** SDK surface (not the ``.aio()`` coroutines)
+and are funneled through a dedicated, event-loop-free thread pool. Modal's SDK
+is sync-over-async via ``synchronicity``, which manages its own internal event
+loop; driving Modal's ``.aio()`` coroutines on a *foreign* loop breaks
+modal>=1.3's sandbox command-router exec path (``RuntimeError: no running event
+loop`` deep in grpclib). Calling the blocking API from threads with no running
+loop lets synchronicity own its loop and works reliably.
 """
 
-import asyncio
 import base64
+import concurrent.futures
 import io
 import logging
+import os
 import shlex
 import tarfile
-import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -33,6 +41,32 @@ logger = logging.getLogger(__name__)
 
 _SNAPSHOT_STORE = get_hermes_home() / "modal_snapshots.json"
 _DIRECT_SNAPSHOT_NAMESPACE = "direct"
+
+
+def _collect_passthrough_env() -> dict[str, str]:
+    """Return host env vars that are allowlisted for sandbox passthrough.
+
+    Reuses the session-scoped allowlist from :mod:`tools.env_passthrough`
+    (skill ``required_environment_variables`` + the ``terminal.env_passthrough``
+    config list). Only names present in the host environment are forwarded.
+
+    The allowlist already refuses Hermes-managed provider credentials (per
+    ``_HERMES_PROVIDER_ENV_BLOCKLIST`` / GHSA-rhgp-j443-p4rf), so this never
+    ships the agent's own API keys to the sandbox; third-party keys such as
+    ``NOTION_API_KEY`` pass through normally once allowlisted.
+    """
+    try:
+        from tools.env_passthrough import get_all_passthrough
+    except Exception as e:
+        logger.debug("Modal: could not load env passthrough allowlist: %s", e)
+        return {}
+
+    forwarded: dict[str, str] = {}
+    for name in get_all_passthrough():
+        value = os.environ.get(name)
+        if value is not None:
+            forwarded[name] = value
+    return forwarded
 
 
 def _load_snapshots() -> dict:
@@ -124,47 +158,40 @@ def _resolve_modal_image(image_spec: Any) -> Any:
     )
 
 
-class _AsyncWorker:
-    """Background thread with its own event loop for async-safe Modal calls."""
+class _SyncWorker:
+    """Dedicated, event-loop-free thread pool for blocking Modal SDK calls.
+
+    Why not just call Modal inline? Two reasons:
+
+    1. Modal's ``synchronicity`` blocking API must NOT be invoked from a thread
+       that already has a running asyncio event loop. Routing every Modal call
+       onto pool threads (which never run a loop) guarantees that.
+    2. The previous implementation drove Modal's ``.aio()`` coroutines on a
+       hand-rolled event loop, which broke modal>=1.3's command-router exec
+       (``RuntimeError: no running event loop``). Using the blocking API on
+       loop-free threads sidesteps that entirely.
+
+    Several workers (not one) so an in-flight ``exec`` and a concurrent
+    ``terminate`` (interrupt) don't serialize behind each other. Modal handles
+    concurrent blocking calls from multiple threads fine.
+    """
 
     def __init__(self):
-        self._loop: Optional[asyncio.AbstractEventLoop] = None
-        self._thread: Optional[threading.Thread] = None
-        self._started = threading.Event()
+        self._executor = concurrent.futures.ThreadPoolExecutor(
+            max_workers=4, thread_name_prefix="modal-env"
+        )
 
-    def start(self):
-        self._thread = threading.Thread(target=self._run_loop, daemon=True)
-        self._thread.start()
-        self._started.wait(timeout=30)
-
-    def _run_loop(self):
-        self._loop = asyncio.new_event_loop()
-        asyncio.set_event_loop(self._loop)
-        self._started.set()
-        self._loop.run_forever()
-
-    def run_coroutine(self, coro, timeout=600):
-        from agent.async_utils import safe_schedule_threadsafe
-        if self._loop is None or self._loop.is_closed():
-            if asyncio.iscoroutine(coro):
-                coro.close()
-            raise RuntimeError("AsyncWorker loop is not running")
-        future = safe_schedule_threadsafe(coro, self._loop)
-        if future is None:
-            raise RuntimeError("AsyncWorker loop is not running")
-        return future.result(timeout=timeout)
+    def run(self, fn, timeout=600):
+        return self._executor.submit(fn).result(timeout=timeout)
 
     def stop(self):
-        if self._loop and self._loop.is_running():
-            self._loop.call_soon_threadsafe(self._loop.stop)
-        if self._thread:
-            self._thread.join(timeout=10)
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
 
 class ModalEnvironment(BaseEnvironment):
     """Modal cloud execution via native Modal sandboxes.
 
-    Spawn-per-call via _ThreadedProcessHandle wrapping async SDK calls.
+    Spawn-per-call via _ThreadedProcessHandle wrapping blocking SDK calls.
     cancel_fn wired to sandbox.terminate for interrupt support.
     """
 
@@ -186,7 +213,7 @@ class ModalEnvironment(BaseEnvironment):
         self._task_id = task_id
         self._sandbox = None
         self._app = None
-        self._worker = _AsyncWorker()
+        self._worker = _SyncWorker()
         self._sync_manager: FileSyncManager | None = None  # initialized after sandbox creation
 
         sandbox_kwargs = dict(modal_sandbox_kwargs or {})
@@ -236,16 +263,25 @@ class ModalEnvironment(BaseEnvironment):
         except Exception as e:
             logger.debug("Modal: could not load credential file mounts: %s", e)
 
-        self._worker.start()
+        forwarded_env = _collect_passthrough_env()
+        if forwarded_env:
+            logger.debug(
+                "Modal: forwarding %d allowlisted env var(s) to sandbox: %s",
+                len(forwarded_env), ", ".join(sorted(forwarded_env)),
+            )
 
-        async def _create_sandbox(image_spec: Any):
-            app = await _modal.App.lookup.aio("hermes-agent", create_if_missing=True)
+        def _create_sandbox(image_spec: Any):
+            app = _modal.App.lookup("hermes-agent", create_if_missing=True)
             create_kwargs = dict(sandbox_kwargs)
             if cred_mounts:
                 existing_mounts = list(create_kwargs.pop("mounts", []))
                 existing_mounts.extend(cred_mounts)
                 create_kwargs["mounts"] = existing_mounts
-            sandbox = await _modal.Sandbox.create.aio(
+            if forwarded_env:
+                existing_secrets = list(create_kwargs.pop("secrets", []))
+                existing_secrets.append(_modal.Secret.from_dict(forwarded_env))
+                create_kwargs["secrets"] = existing_secrets
+            sandbox = _modal.Sandbox.create(
                 "sleep", "infinity",
                 image=image_spec,
                 app=app,
@@ -258,8 +294,8 @@ class ModalEnvironment(BaseEnvironment):
             target_image_spec = restored_snapshot_id or image
             try:
                 effective_image = _resolve_modal_image(target_image_spec)
-                self._app, self._sandbox = self._worker.run_coroutine(
-                    _create_sandbox(effective_image), timeout=300,
+                self._app, self._sandbox = self._worker.run(
+                    lambda: _create_sandbox(effective_image), timeout=300,
                 )
             except Exception as exc:
                 if not restored_snapshot_id:
@@ -270,8 +306,8 @@ class ModalEnvironment(BaseEnvironment):
                 )
                 _delete_direct_snapshot(self._task_id, restored_snapshot_id)
                 base_image = _resolve_modal_image(image)
-                self._app, self._sandbox = self._worker.run_coroutine(
-                    _create_sandbox(base_image), timeout=300,
+                self._app, self._sandbox = self._worker.run(
+                    lambda: _create_sandbox(base_image), timeout=300,
                 )
             else:
                 if restored_snapshot_id and restored_from_legacy_key:
@@ -302,19 +338,19 @@ class ModalEnvironment(BaseEnvironment):
             f"base64 -d > {shlex.quote(remote_path)}"
         )
 
-        async def _write():
-            proc = await self._sandbox.exec.aio("bash", "-c", cmd)
+        def _write():
+            proc = self._sandbox.exec("bash", "-c", cmd)
             offset = 0
             chunk_size = self._STDIN_CHUNK_SIZE
             while offset < len(b64):
                 proc.stdin.write(b64[offset:offset + chunk_size])
-                await proc.stdin.drain.aio()
+                proc.stdin.drain()
                 offset += chunk_size
             proc.stdin.write_eof()
-            await proc.stdin.drain.aio()
-            await proc.wait.aio()
+            proc.stdin.drain()
+            proc.wait()
 
-        self._worker.run_coroutine(_write(), timeout=30)
+        self._worker.run(_write, timeout=30)
 
     # Modal SDK stdin buffer limit (legacy server path).  The command-router
     # path allows 16 MB, but we must stay under the smaller 2 MB cap for
@@ -342,8 +378,8 @@ class ModalEnvironment(BaseEnvironment):
         mkdir_part = quoted_mkdir_command(parents)
         cmd = f"{mkdir_part} && base64 -d | tar xzf - -C /"
 
-        async def _bulk():
-            proc = await self._sandbox.exec.aio("bash", "-c", cmd)
+        def _bulk():
+            proc = self._sandbox.exec("bash", "-c", cmd)
 
             # Stream payload through stdin in chunks to stay under the
             # SDK's per-write buffer limit (2 MB legacy / 16 MB router).
@@ -351,20 +387,20 @@ class ModalEnvironment(BaseEnvironment):
             chunk_size = self._STDIN_CHUNK_SIZE
             while offset < len(payload):
                 proc.stdin.write(payload[offset:offset + chunk_size])
-                await proc.stdin.drain.aio()
+                proc.stdin.drain()
                 offset += chunk_size
 
             proc.stdin.write_eof()
-            await proc.stdin.drain.aio()
+            proc.stdin.drain()
 
-            exit_code = await proc.wait.aio()
+            exit_code = proc.wait()
             if exit_code != 0:
-                stderr_text = await proc.stderr.read.aio()
+                stderr_text = proc.stderr.read()
                 raise RuntimeError(
                     f"Modal bulk upload failed (exit {exit_code}): {stderr_text}"
                 )
 
-        self._worker.run_coroutine(_bulk(), timeout=120)
+        self._worker.run(_bulk, timeout=120)
 
     def _modal_bulk_download(self, dest: Path) -> None:
         """Download remote .hermes/ as a tar archive.
@@ -372,17 +408,17 @@ class ModalEnvironment(BaseEnvironment):
         Modal sandboxes always run as root, so /root/.hermes is hardcoded
         (consistent with iter_sync_files call on line 269).
         """
-        async def _download():
-            proc = await self._sandbox.exec.aio(
+        def _download():
+            proc = self._sandbox.exec(
                 "bash", "-c", "tar cf - -C / root/.hermes"
             )
-            data = await proc.stdout.read.aio()
-            exit_code = await proc.wait.aio()
+            data = proc.stdout.read()
+            exit_code = proc.wait()
             if exit_code != 0:
                 raise RuntimeError(f"Modal bulk download failed (exit {exit_code})")
             return data
 
-        tar_bytes = self._worker.run_coroutine(_download(), timeout=120)
+        tar_bytes = self._worker.run(_download, timeout=120)
         if isinstance(tar_bytes, str):
             tar_bytes = tar_bytes.encode()
         dest.write_bytes(tar_bytes)
@@ -391,11 +427,11 @@ class ModalEnvironment(BaseEnvironment):
         """Batch-delete remote files via exec."""
         rm_cmd = quoted_rm_command(remote_paths)
 
-        async def _rm():
-            proc = await self._sandbox.exec.aio("bash", "-c", rm_cmd)
-            await proc.wait.aio()
+        def _rm():
+            proc = self._sandbox.exec("bash", "-c", rm_cmd)
+            proc.wait()
 
-        self._worker.run_coroutine(_rm(), timeout=15)
+        self._worker.run(_rm, timeout=15)
 
     def _before_execute(self) -> None:
         """Sync files to sandbox via FileSyncManager (rate-limited internally)."""
@@ -408,24 +444,26 @@ class ModalEnvironment(BaseEnvironment):
     def _run_bash(self, cmd_string: str, *, login: bool = False,
                   timeout: int = 120,
                   stdin_data: str | None = None):
-        """Return a _ThreadedProcessHandle wrapping an async Modal sandbox exec."""
+        """Return a _ThreadedProcessHandle wrapping a blocking Modal sandbox exec."""
         sandbox = self._sandbox
         worker = self._worker
 
         def cancel():
-            worker.run_coroutine(sandbox.terminate.aio(), timeout=15)
+            # Runs on a separate pool thread so it can interrupt an in-flight
+            # exec rather than queueing behind it.
+            worker.run(lambda: sandbox.terminate(), timeout=15)
 
         def exec_fn() -> tuple[str, int]:
-            async def _do():
+            def _do():
                 args = ["bash"]
                 if login:
                     args.extend(["-l", "-c", cmd_string])
                 else:
                     args.extend(["-c", cmd_string])
-                process = await sandbox.exec.aio(*args, timeout=timeout)
-                stdout = await process.stdout.read.aio()
-                stderr = await process.stderr.read.aio()
-                exit_code = await process.wait.aio()
+                process = sandbox.exec(*args, timeout=timeout)
+                stdout = process.stdout.read()
+                stderr = process.stderr.read()
+                exit_code = process.wait()
                 if isinstance(stdout, bytes):
                     stdout = stdout.decode("utf-8", errors="replace")
                 if isinstance(stderr, bytes):
@@ -435,7 +473,7 @@ class ModalEnvironment(BaseEnvironment):
                     output = f"{stdout}\n{stderr}" if stdout else stderr
                 return output, exit_code
 
-            return worker.run_coroutine(_do(), timeout=timeout + 30)
+            return worker.run(_do, timeout=timeout + 30)
 
         return _ThreadedProcessHandle(exec_fn, cancel_fn=cancel)
 
@@ -450,12 +488,12 @@ class ModalEnvironment(BaseEnvironment):
 
         if self._persistent:
             try:
-                async def _snapshot():
-                    img = await self._sandbox.snapshot_filesystem.aio()
+                def _snapshot():
+                    img = self._sandbox.snapshot_filesystem()
                     return img.object_id
 
                 try:
-                    snapshot_id = self._worker.run_coroutine(_snapshot(), timeout=60)
+                    snapshot_id = self._worker.run(_snapshot, timeout=60)
                 except Exception:
                     snapshot_id = None
 
@@ -469,7 +507,7 @@ class ModalEnvironment(BaseEnvironment):
                 logger.warning("Modal: filesystem snapshot failed: %s", e)
 
         try:
-            self._worker.run_coroutine(self._sandbox.terminate.aio(), timeout=15)
+            self._worker.run(lambda: self._sandbox.terminate(), timeout=15)
         except Exception:
             pass
         finally:

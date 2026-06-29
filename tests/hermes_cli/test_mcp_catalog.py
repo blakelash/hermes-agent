@@ -307,6 +307,45 @@ class TestInstall:
         assert server["url"] == "https://mcp.example.com/sse"
         assert server["auth"] == "oauth"
 
+    def test_install_http_api_key_writes_bearer_header(self, catalog_dir, monkeypatch):
+        # GitHub's remote MCP has no DCR endpoint, so it authenticates with a
+        # PAT in the Authorization header rather than OAuth. The collected
+        # secret must surface as a Bearer-header template on the http server.
+        body = _basic_manifest(
+            transport={"type": "http", "url": "https://api.example.com/mcp/"},
+            auth={
+                "type": "api_key",
+                "env_var": "MCP_DEMO_API_KEY",
+                "env": [{"name": "MCP_DEMO_API_KEY", "prompt": "PAT", "secret": True}],
+            },
+        )
+        _write_manifest(catalog_dir, "demo", body)
+
+        from hermes_cli import mcp_catalog
+
+        monkeypatch.setattr(mcp_catalog, "_prompt_input", lambda *a, **kw: "ghp_xxx")
+
+        from hermes_cli.mcp_catalog import install_entry
+        from hermes_cli.config import load_config, get_hermes_home
+
+        install_entry(_entry("demo"), enable=True)
+
+        server = load_config()["mcp_servers"]["demo"]
+        assert server["url"] == "https://api.example.com/mcp/"
+        assert "auth" not in server  # not oauth
+        # load_config() resolves ${VAR}, so the PAT flows into the header...
+        assert server["headers"] == {"Authorization": "Bearer ghp_xxx"}
+        # ...but the on-disk config keeps the env template — the secret stays
+        # in .env and is never written to config.yaml.
+        import yaml
+
+        raw = yaml.safe_load(
+            (get_hermes_home() / "config.yaml").read_text(encoding="utf-8")
+        )
+        assert raw["mcp_servers"]["demo"]["headers"] == {
+            "Authorization": "Bearer ${MCP_DEMO_API_KEY}"
+        }
+
     def test_install_required_env_missing_raises(self, catalog_dir, monkeypatch):
         body = _basic_manifest(
             auth={
