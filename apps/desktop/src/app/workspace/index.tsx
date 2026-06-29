@@ -32,7 +32,6 @@ import { useWorkspaceFiles } from './use-workspace-files'
 interface WorkspaceViewProps {
   gateway: HermesGateway | null
   onClose: () => void
-  onOpenStream: () => void
   requestGateway: <T>(method: string, params?: Record<string, unknown>) => Promise<T>
 }
 
@@ -52,7 +51,7 @@ function envDotColor(status: string): string {
   }
 }
 
-export function WorkspaceView({ gateway, onClose, onOpenStream, requestGateway }: WorkspaceViewProps) {
+export function WorkspaceView({ gateway, onClose, requestGateway }: WorkspaceViewProps) {
   const env = useStore($workspaceEnv)
   const outTab = useStore($workspaceOutTab)
   const applied = useStore($workspaceEditApplied)
@@ -185,17 +184,6 @@ export function WorkspaceView({ gateway, onClose, onOpenStream, requestGateway }
     <div className="hermes-dashboard hd-root">
       {/* TOP BAR */}
       <header className="hd-ws-topbar">
-        <div className="hd-brand" style={{ fontSize: 16 }}>
-          Hermes
-        </div>
-        <div className="hd-switcher">
-          <button className="hd-seg" onClick={onOpenStream} type="button">
-            Stream
-          </button>
-          <button className="hd-seg hd-seg--active" type="button">
-            Workspace
-          </button>
-        </div>
         <div className="hd-ws-envs">
           <span className="hd-microlabel" style={{ marginRight: 2 }}>
             files in

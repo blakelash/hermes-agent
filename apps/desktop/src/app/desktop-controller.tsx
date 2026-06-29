@@ -60,8 +60,8 @@ import {
   $gatewayState,
   $messages,
   $messagingSessions,
-  $resumeFailedSessionId,
   $resumeExhaustedSessionId,
+  $resumeFailedSessionId,
   $selectedStoredSessionId,
   $sessions,
   $workingSessionIds,
@@ -240,7 +240,6 @@ export function DesktopController() {
     dashboardOpen,
     openAgents,
     openCommandCenterSection,
-    openDashboard,
     openWorkspace,
     profilesOpen,
     settingsOpen,
@@ -1106,7 +1105,6 @@ export function DesktopController() {
           <WorkspaceView
             gateway={gatewayRef.current}
             onClose={closeOverlayToPreviousRoute}
-            onOpenStream={openDashboard}
             requestGateway={requestGateway}
           />
         </Suspense>

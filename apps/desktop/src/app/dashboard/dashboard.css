@@ -5,7 +5,12 @@
 /* ---------- shared atoms ---------- */
 .hd-root {
   position: fixed;
-  inset: 0;
+  /* Start below the macOS titlebar so the surface's own top bar doesn't slide
+     under the window controls + the centered app tabs. */
+  top: var(--titlebar-height, 34px);
+  left: 0;
+  right: 0;
+  bottom: 0;
   z-index: 50;
   display: flex;
   flex-direction: column;

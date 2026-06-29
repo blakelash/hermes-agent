@@ -2,7 +2,6 @@ import type { DashboardView } from '@/store/dashboard'
 
 interface TopBarProps {
   envLabel?: string
-  onOpenWorkspace: () => void
   onView: (view: DashboardView) => void
   view: DashboardView
   working?: boolean
@@ -10,7 +9,7 @@ interface TopBarProps {
 
 const ACCENT_DOT: React.CSSProperties = { background: 'var(--hd-accent)', height: 6, width: 6 }
 
-export function DashboardTopBar({ envLabel = 'sb-9f2a', onOpenWorkspace, onView, view, working = true }: TopBarProps) {
+export function DashboardTopBar({ envLabel = 'sb-9f2a', onView, view, working = true }: TopBarProps) {
   const seg = (target: DashboardView) => `hd-seg${view === target ? ' hd-seg--active' : ''}`
 
   return (
@@ -31,10 +30,6 @@ export function DashboardTopBar({ envLabel = 'sb-9f2a', onOpenWorkspace, onView,
           Surface
         </button>
       </div>
-
-      <button className="hd-btn-secondary" onClick={onOpenWorkspace} type="button">
-        Workspace →
-      </button>
 
       <div className="hd-topbar-right">
         <span className="hd-chip">

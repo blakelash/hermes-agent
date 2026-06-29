@@ -49,7 +49,7 @@ import { isSecondaryWindow } from '@/store/windows'
 import type { ModelOptionsResponse } from '@/types/hermes'
 
 import { routeSessionId } from '../routes'
-import { titlebarHeaderBaseClass, titlebarHeaderShadowClass, titlebarHeaderTitleClass } from '../shell/titlebar'
+import { titlebarHeaderShadowClass, titlebarHeaderTitleClass } from '../shell/titlebar'
 
 import { ChatDropOverlay } from './chat-drop-overlay'
 import { ChatSwapOverlay } from './chat-swap-overlay'
@@ -134,14 +134,21 @@ function ChatHeader({
   }
 
   return (
-    <header className={cn(titlebarHeaderBaseClass, isRoutedSessionView && titlebarHeaderShadowClass)}>
-      <div
-        className={titlebarHeaderTitleClass}
-        style={{
-          maxWidth:
-            'calc(100vw - var(--titlebar-content-inset,0px) - var(--titlebar-tools-right) - var(--titlebar-tools-width) - 1.5rem)'
-        }}
+    <>
+      {/* Titlebar row: reserved for the centered app tabs (AppTabs) + window
+          controls. Transparent + draggable; the session title now lives in the
+          slim bar below so it doesn't compete with the centered tabs. */}
+      <div aria-hidden className="h-(--titlebar-height) w-full shrink-0 [-webkit-app-region:drag]" />
+      <header
+        className={cn(
+          'relative z-3 flex h-8 w-full min-w-0 shrink-0 items-center gap-3 overflow-hidden border-b border-(--ui-stroke-tertiary) bg-(--ui-chat-surface-background) px-3',
+          isRoutedSessionView && titlebarHeaderShadowClass
+        )}
       >
+        <div
+          className={titlebarHeaderTitleClass}
+          style={{ maxWidth: 'calc(100% - 1rem)' }}
+        >
         <SessionActionsMenu
           align="start"
           onDelete={selectedSessionId ? onDeleteSelectedSession : undefined}
@@ -162,6 +169,7 @@ function ChatHeader({
         </SessionActionsMenu>
       </div>
     </header>
+    </>
   )
 }
 

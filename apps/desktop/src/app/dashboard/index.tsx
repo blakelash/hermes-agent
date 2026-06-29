@@ -105,16 +105,9 @@ export function DashboardView({ gateway, onClose, onOpenWorkspace, requestGatewa
     [refresh, requestGateway]
   )
 
-  // The plain "Workspace →" button opens the active session's workspace, not a
-  // previously-focused project.
-  const openWorkspaceGeneric = useCallback(() => {
-    setWorkspaceProject(null)
-    onOpenWorkspace()
-  }, [onOpenWorkspace])
-
   return (
     <div className="hermes-dashboard hd-root">
-      <DashboardTopBar onOpenWorkspace={openWorkspaceGeneric} onView={setDashboardView} view={view} />
+      <DashboardTopBar onView={setDashboardView} view={view} />
       <StreamView
         onCreateProject={createProject}
         onOpenProject={openProject}
