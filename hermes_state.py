@@ -1941,6 +1941,45 @@ class SessionDB:
             row = cursor.fetchone()
         return row["title"] if row else None
 
+    def sum_session_cost(self, since: Optional[float] = None) -> Dict[str, float]:
+        """Sum cost + token totals across non-archived sessions in this profile.
+
+        Powers the operator Dashboard's profile-global cost readout — one
+        lightweight aggregate query instead of walking every live agent. When
+        *since* is given, only sessions started at/after that epoch timestamp
+        are summed (a "recent activity" window); otherwise every non-archived
+        session counts.
+
+        Returns ``{cost_usd, input, output, total, calls}``. Values are floats
+        from SQL SUM (NULL → 0). Note this reflects what has been PERSISTED to
+        the DB — a live agent's in-flight, not-yet-flushed cost is not included.
+        """
+        where = "archived = 0"
+        params: List[Any] = []
+        if since is not None:
+            where += " AND started_at >= ?"
+            params.append(float(since))
+        with self._lock:
+            row = self._conn.execute(
+                f"""SELECT
+                        COALESCE(SUM(estimated_cost_usd), 0) AS cost_usd,
+                        COALESCE(SUM(input_tokens), 0)       AS input,
+                        COALESCE(SUM(output_tokens), 0)      AS output,
+                        COALESCE(SUM(api_call_count), 0)     AS calls
+                    FROM sessions WHERE {where}""",
+                params,
+            ).fetchone()
+        cost_usd = float(row["cost_usd"] or 0.0)
+        inp = int(row["input"] or 0)
+        out = int(row["output"] or 0)
+        return {
+            "cost_usd": cost_usd,
+            "input": inp,
+            "output": out,
+            "total": inp + out,
+            "calls": int(row["calls"] or 0),
+        }
+
     def set_session_archived(self, session_id: str, archived: bool) -> bool:
         """Archive or unarchive a session.
 

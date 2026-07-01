@@ -1,0 +1,55 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&family=Newsreader:opsz,wght@6..72,300..600&display=swap" rel="stylesheet">
+</head>
+<body>
+<x-dc>
+<div style="background:#101219;border-radius:10px;padding:11px 12px;font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:11.5px;line-height:1.7;height:100%;min-height:132px;overflow:hidden">
+  <sc-for list="{{ lines }}" as="line" hint-placeholder-count="4">
+    <div style="display:flex;gap:8px"><span style="color:#5E657A;flex:0 0 auto;font-variant-numeric:tabular-nums">{{ line.t }}</span><span style="color:{{ line.color }};min-width:0;word-break:break-word">{{ line.text }}</span></div>
+  </sc-for>
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:340,&quot;height&quot;:140},&quot;live&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { lines: [] };
+  componentDidMount() {
+    this._pool = [
+      { tone:'dim', text:'recomputing BH correction across 19,193 genes' },
+      { tone:'dim', text:'matching against the Hallmark EMT gene set' },
+      { tone:'ok',  text:'AXL +2.39 \u00b7 VIM +1.81 \u00b7 CDH1 \u22121.69 (validation)' },
+      { tone:'dim', text:'rendering figures/volcano_validation.png' },
+      { tone:'p',   text:'drafting write-up \u2014 section 2 of 3' },
+      { tone:'dim', text:'cross-checking direction vs Adachi 2023' },
+    ];
+    this._i = 0;
+    this.setState({ lines: [
+      { t:'07:02', tone:'dim', text:'loaded validation_cohort.parquet (988 \u00d7 19193)' },
+      { t:'07:02', tone:'dim', text:'resistant n=121 \u00b7 sensitive n=140' },
+      { t:'07:03', tone:'ok',  text:'de_validation.parquet written \u00b7 214 genes q<0.05' },
+    ]});
+    this._reduced = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (!this._reduced) {
+      this._iv = setInterval(() => { if (this.props.live === false) return; this.push(); }, 2800);
+    }
+  }
+  componentWillUnmount() { if (this._iv) clearInterval(this._iv); }
+  push() {
+    const item = this._pool[this._i % this._pool.length]; this._i++;
+    const t = new Date().toLocaleTimeString('en-GB', { hour:'2-digit', minute:'2-digit' });
+    this.setState(s => ({ lines: s.lines.concat([{ t, tone:item.tone, text:item.text }]).slice(-6) }));
+  }
+  renderVals() {
+    const c = { dim:'#6B7390', ok:'#5BC98C', p:'#6CCFD8' };
+    return { lines: (this.state.lines || []).map(l => ({ ...l, color: c[l.tone] || '#C7CDDB' })) };
+  }
+}
+</script>
+</body>
+</html>

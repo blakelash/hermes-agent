@@ -1,0 +1,487 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<script src="./support.js"></script>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Geist:wght@300..700&family=Geist+Mono:wght@400..600&family=Newsreader:opsz,wght@6..72,300..600&display=swap" rel="stylesheet">
+</head>
+<body>
+<x-dc>
+<helmet>
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<style>
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{background:#F6F5F2;font-family:'Geist',system-ui,-apple-system,sans-serif;color:#14161D}
+  @keyframes hb{0%,100%{opacity:.4}50%{opacity:1}}
+  @keyframes wv{0%,100%{opacity:.3;transform:translateY(0)}50%{opacity:1;transform:translateY(-3px)}}
+  @keyframes gl{0%,100%{box-shadow:0 0 0 0 #0d6e7844}50%{box-shadow:0 0 0 7px #0d6e7800}}
+  @keyframes pop{from{opacity:0;transform:translate(-50%,8px)}to{opacity:1;transform:translate(-50%,0)}}
+  @media (prefers-reduced-motion:reduce){*{animation:none!important}}
+  ::-webkit-scrollbar{width:10px;height:10px}
+  ::-webkit-scrollbar-thumb{background:#0000001f;border-radius:6px;border:2px solid transparent;background-clip:padding-box}
+</style>
+</helmet>
+
+<div style="min-height:100vh;display:flex;flex-direction:column;font-family:'Geist',system-ui,-apple-system,sans-serif;color:#14161D;background:#F6F5F2;font-size:14px;-webkit-font-smoothing:antialiased">
+
+  <!-- ============ TOP BAR ============ -->
+  <header style="position:sticky;top:0;z-index:20;display:flex;align-items:center;gap:16px;padding:11px 22px;background:#F6F5F2e6;backdrop-filter:blur(8px);border-bottom:1px solid #E7E9EF">
+    <div style="font-family:'Newsreader','Palatino Linotype',Palatino,Georgia,serif;font-size:17px;font-weight:600;letter-spacing:.01em">Hermes <span style="color:#9398A6;font-weight:400;font-size:12.5px;font-family:'Geist',system-ui,sans-serif">· research collaborator</span></div>
+    <div style="display:flex;background:#ECEEF3;border-radius:9px;padding:2px;margin-left:4px">
+      <button onClick="{{ onBrief }}" style="{{ sbBrief }}">Brief</button>
+      <button onClick="{{ onStream }}" style="{{ sbStream }}">Stream</button>
+      <button onClick="{{ onSurface }}" style="{{ sbSurface }}">Surface</button>
+    </div>
+    <button onClick="{{ openWorkspace }}" style="border:1px solid #DDE0E8;background:#fff;color:#565C6B;font:600 12px 'Geist',system-ui;padding:6px 12px;border-radius:8px;cursor:pointer">Workspace →</button>
+    <div style="margin-left:auto;display:flex;align-items:center;gap:16px">
+      <span style="display:inline-flex;align-items:center;gap:6px;border:1px solid #0D6E78;background:#0D6E7812;color:#0D6E78;border-radius:999px;padding:4px 10px;font-size:11.5px;font-family:'Geist Mono',ui-monospace,Menlo,monospace"><span style="width:6px;height:6px;border-radius:50%;background:#0D6E78;animation:hb 2.4s ease-in-out infinite"></span>sb-9f2a</span>
+      <span style="display:inline-flex;align-items:center;gap:7px;font-size:12px;color:#565C6B"><span style="width:6px;height:6px;border-radius:50%;background:#0D6E78;animation:hb 2.2s ease-in-out infinite"></span>working</span>
+      <span style="width:28px;height:28px;border-radius:9px;display:grid;place-items:center;background:#0D6E7812;color:#0D6E78;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:13px">H</span>
+    </div>
+  </header>
+
+  <!-- ============ BRIEF (conservative: narrative hero + panels) ============ -->
+  <sc-if value="{{ isBrief }}" hint-placeholder-val="{{ true }}">
+  <main style="flex:1 1 auto;overflow-y:auto">
+    <div style="max-width:1180px;margin:0 auto;padding:24px 26px 64px">
+
+      <!-- NARRATIVE HERO -->
+      <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;padding:22px 24px;margin-bottom:18px">
+        <div style="display:flex;align-items:center;gap:12px;margin-bottom:14px">
+          <span style="font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">While you were away</span>
+          <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#565C6B;font-variant-numeric:tabular-nums">7h 20m · since 11:40 PM</span>
+          <button onClick="{{ toggleDigest }}" style="margin-left:auto;border:1px solid #DDE0E8;background:#fff;color:#565C6B;font:600 11.5px 'Geist',system-ui;padding:5px 11px;border-radius:8px;cursor:pointer">{{ digestBtn }}</button>
+        </div>
+        <div style="display:flex;gap:16px;align-items:flex-start">
+          <span style="width:34px;height:34px;border-radius:10px;flex:0 0 auto;display:grid;place-items:center;background:#0D6E7812;color:#0D6E78;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:16px;margin-top:3px">H</span>
+          <div style="min-width:0">
+            <div style="font-family:'Newsreader','Palatino Linotype',Palatino,Georgia,serif;font-size:27px;line-height:1.26;letter-spacing:-.026em;max-width:30ch;margin-bottom:9px">Good morning — the validation cohort agrees. The AXL/EMT resistance signature replicates.</div>
+            <p style="margin:0 0 9px;font-size:15px;line-height:1.6;color:#14161D;max-width:62ch">I re-ran the differential expression overnight and it holds — <b>214 genes at q ≤ 5e-5</b>, with AXL still the strongest single hit. I've got a draft write-up going.</p>
+            <p style="margin:0;font-size:15px;line-height:1.6;color:#565C6B;max-width:62ch">Before I send it, I need <b style="color:#14161D">one decision and one approval</b> from you, and the SFTP pull to the patient cohort stalled — credentials expired.</p>
+          </div>
+        </div>
+
+        <div style="display:flex;margin-top:20px;border-top:1px solid #EEF0F4;padding-top:16px">
+          <div style="flex:1;padding-right:18px"><div style="font-family:'Geist Mono',ui-monospace,monospace;font-weight:600;font-size:24px;color:#2E9E66;font-variant-numeric:tabular-nums">3</div><div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;margin-top:2px">jobs finished</div></div>
+          <div style="flex:1;padding:0 18px;border-left:1px solid #EEF0F4"><div style="font-family:'Geist Mono',ui-monospace,monospace;font-weight:600;font-size:24px;color:#14161D;font-variant-numeric:tabular-nums">2</div><div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;margin-top:2px">findings ready</div></div>
+          <div style="flex:1;padding:0 18px;border-left:1px solid #EEF0F4"><div style="font-family:'Geist Mono',ui-monospace,monospace;font-weight:600;font-size:24px;color:#0D6E78;font-variant-numeric:tabular-nums">{{ needsCount }}</div><div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;margin-top:2px">need you</div></div>
+          <div style="flex:1;padding:0 18px;border-left:1px solid #EEF0F4"><div style="font-family:'Geist Mono',ui-monospace,monospace;font-weight:600;font-size:24px;color:#14161D;font-variant-numeric:tabular-nums">$0.31</div><div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.08em;text-transform:uppercase;color:#9398A6;margin-top:2px">compute spent</div></div>
+        </div>
+
+        <sc-if value="{{ digestOpen }}" hint-placeholder-val="{{ false }}">
+        <div style="margin-top:16px;border-top:1px solid #EEF0F4;padding-top:6px">
+          <sc-for list="{{ events }}" as="ev" hint-placeholder-count="4">
+            <div style="display:flex;gap:12px;align-items:baseline;padding:8px 0;border-top:1px solid #EEF0F4">
+              <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#9398A6;width:62px;flex:0 0 auto;font-variant-numeric:tabular-nums">{{ ev.t }}</span>
+              <span style="font-size:13px;color:#565C6B"><b style="color:#14161D;font-weight:600">{{ ev.who }}</b> {{ ev.text }}</span>
+              <span style="margin-left:auto;width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:{{ ev.dot }}"></span>
+            </div>
+          </sc-for>
+        </div>
+        </sc-if>
+      </section>
+
+      <div style="display:grid;grid-template-columns:1.7fr 1fr;gap:18px;align-items:start">
+        <!-- LEFT -->
+        <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+          <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;overflow:hidden">
+            <div style="display:flex;align-items:center;gap:10px;padding:15px 18px 13px">
+              <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Needs you</span>
+              <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;font-weight:600;color:#0D6E78;background:#0D6E7812;border-radius:999px;padding:1px 8px;font-variant-numeric:tabular-nums">{{ needsCount }}</span>
+            </div>
+            <sc-for list="{{ needs }}" as="item" hint-placeholder-count="4">
+              <div style="padding:14px 18px;border-top:1px solid #EEF0F4">
+                <div style="display:flex;align-items:center;gap:9px;margin-bottom:5px">
+                  <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;font-weight:600;color:{{ item.accent }}">{{ item.kind }}</span>
+                  <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10.5px;color:#9398A6;margin-left:auto">{{ item.meta }}</span>
+                </div>
+                <div style="font-size:14.5px;font-weight:600;color:#14161D;margin-bottom:3px">{{ item.title }}</div>
+                <div style="font-size:13px;color:#565C6B;line-height:1.5;margin-bottom:11px">{{ item.detail }}</div>
+                <div style="display:flex;gap:8px">
+                  <button onClick="{{ item.onPrimary }}" style="border:0;background:#0D6E78;color:#fff;font:600 12px 'Geist',system-ui;padding:7px 14px;border-radius:8px;cursor:pointer">{{ item.primaryLabel }}</button>
+                  <button onClick="{{ item.onSecondary }}" style="border:1px solid #DDE0E8;background:#fff;color:#565C6B;font:600 12px 'Geist',system-ui;padding:7px 14px;border-radius:8px;cursor:pointer">{{ item.secondaryLabel }}</button>
+                </div>
+              </div>
+            </sc-for>
+            <sc-if value="{{ allClear }}" hint-placeholder-val="{{ false }}">
+              <div style="padding:30px 18px;text-align:center;border-top:1px solid #EEF0F4">
+                <div style="width:34px;height:34px;border-radius:50%;background:#2E9E6614;color:#2E9E66;display:grid;place-items:center;margin:0 auto 10px;font-size:16px">✓</div>
+                <div style="font-size:14px;color:#14161D;font-weight:600;margin-bottom:3px">You're all caught up</div>
+                <div style="font-size:12.5px;color:#9398A6">I'll keep working and ping you when something else needs a decision.</div>
+              </div>
+            </sc-if>
+          </section>
+
+          <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;overflow:hidden">
+            <div style="padding:15px 18px 13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Fresh findings &amp; deliverables</span></div>
+            <sc-for list="{{ findings }}" as="f" hint-placeholder-count="4">
+              <div style="display:flex;gap:13px;padding:13px 18px;border-top:1px solid #EEF0F4;cursor:pointer" style-hover="background:#F6F5F2">
+                <span style="width:34px;height:34px;border-radius:9px;flex:0 0 auto;display:grid;place-items:center;background:{{ f.tint }};color:{{ f.fg }};font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;font-weight:600">{{ f.type }}</span>
+                <div style="min-width:0;flex:1"><div style="font-size:14px;font-weight:600;color:#14161D">{{ f.title }}</div><div style="font-size:12px;color:#9398A6;font-family:'Geist Mono',ui-monospace,monospace;margin-top:2px">{{ f.meta }}</div></div>
+                <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#9398A6;flex:0 0 auto">{{ f.time }}</span>
+              </div>
+            </sc-for>
+          </section>
+        </div>
+
+        <!-- RIGHT -->
+        <div style="display:flex;flex-direction:column;gap:18px;min-width:0">
+          <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;padding:16px 18px">
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:12px"><span style="width:7px;height:7px;border-radius:50%;background:#0D6E78;animation:hb 2.2s ease-in-out infinite"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Right now</span></div>
+            <div style="font-size:14.5px;font-weight:600;color:#14161D;margin-bottom:11px">Drafting the validation write-up</div>
+            <dc-import name="LiveLog" live="{{ liveUpdates }}" hint-size="100%,140px"></dc-import>
+          </section>
+
+          <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;overflow:hidden">
+            <div style="padding:15px 18px 13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Working for you</span></div>
+            <sc-for list="{{ specialists }}" as="sp" hint-placeholder-count="4">
+              <div style="padding:12px 18px;border-top:1px solid #EEF0F4;display:flex;gap:11px;align-items:flex-start;cursor:pointer" style-hover="background:#F6F5F2">
+                <span style="width:8px;height:8px;border-radius:50%;flex:0 0 auto;margin-top:5px;background:{{ sp.dot }};{{ sp.pulse }}"></span>
+                <div style="flex:1;min-width:0">
+                  <div style="display:flex;align-items:baseline;gap:8px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:13px;font-weight:600;color:#14161D">{{ sp.name }}</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.04em;text-transform:uppercase;color:{{ sp.dot }}">{{ sp.status }}</span></div>
+                  <div style="font-size:12.5px;color:#565C6B;line-height:1.45;margin-top:2px">{{ sp.doing }}</div>
+                </div>
+              </div>
+            </sc-for>
+          </section>
+
+          <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;overflow:hidden">
+            <div style="padding:15px 18px 13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Active projects</span></div>
+            <sc-for list="{{ projects }}" as="p" hint-placeholder-count="4">
+              <div style="padding:12px 18px;border-top:1px solid #EEF0F4;cursor:pointer" style-hover="background:#F6F5F2">
+                <div style="display:flex;align-items:center;gap:8px"><span style="width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:{{ p.dot }};{{ p.pulse }}"></span><span style="font-size:13.5px;font-weight:600;color:{{ p.ink }}">{{ p.name }}</span></div>
+                <div style="font-size:11.5px;color:#9398A6;font-family:'Geist Mono',ui-monospace,monospace;margin-top:4px;padding-left:15px">{{ p.meta }}</div>
+              </div>
+            </sc-for>
+          </section>
+
+          <section style="background:#FFFFFF;border:1px solid #E7E9EF;border-radius:16px;overflow:hidden">
+            <div style="padding:15px 18px 13px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Environments</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#0D6E78;flex:0 0 auto;animation:hb 2.4s ease-in-out infinite"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;color:#14161D">sandbox · sb-9f2a</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;text-transform:uppercase;color:#0D6E78">running</span></div>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#9398A6;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;color:#14161D">cluster · /scratch</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;text-transform:uppercase;color:#9398A6">A100 idle</span></div>
+            <sc-if value="{{ sftpNotFixed }}" hint-placeholder-val="{{ true }}">
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid #EEF0F4;background:#D8453F08"><span style="width:7px;height:7px;border-radius:50%;background:#D8453F;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;color:#14161D">files · sftp</span><button onClick="{{ fixSftp }}" style="margin-left:auto;border:1px solid #D8453F44;background:#fff;color:#D8453F;font:600 11px 'Geist',system-ui;padding:4px 10px;border-radius:7px;cursor:pointer">Re-authenticate</button></div>
+            </sc-if>
+            <sc-if value="{{ sftpFixed }}" hint-placeholder-val="{{ false }}">
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#2E9E66;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;color:#14161D">files · sftp</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;text-transform:uppercase;color:#2E9E66">synced just now</span></div>
+            </sc-if>
+            <div style="display:flex;align-items:center;gap:10px;padding:11px 18px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#2E9E66;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;color:#14161D">local · ~/work</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;text-transform:uppercase;color:#9398A6">synced 2m</span></div>
+          </section>
+        </div>
+      </div>
+    </div>
+  </main>
+  </sc-if>
+
+  <!-- ============ STREAM (balanced: feed timeline + sticky rail) ============ -->
+  <sc-if value="{{ isStream }}" hint-placeholder-val="{{ false }}">
+  <main style="flex:1 1 auto;overflow-y:auto">
+    <div style="max-width:1100px;margin:0 auto;padding:30px 26px 80px;display:grid;grid-template-columns:1fr 312px;gap:34px;align-items:start">
+
+      <!-- FEED -->
+      <div style="min-width:0">
+        <!-- agent summary -->
+        <div style="display:flex;gap:14px;margin-bottom:8px">
+          <span style="width:34px;height:34px;border-radius:10px;flex:0 0 auto;display:grid;place-items:center;background:#0D6E7812;color:#0D6E78;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:16px;margin-top:2px">H</span>
+          <div style="min-width:0">
+            <div style="display:flex;align-items:baseline;gap:9px;margin-bottom:6px"><span style="font-weight:600;font-size:14px">Hermes</span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#9398A6">caught you up · 7:04 AM</span></div>
+            <div style="font-family:'Newsreader','Palatino Linotype',Palatino,Georgia,serif;font-size:20px;line-height:1.32;letter-spacing:-.024em;max-width:34ch;margin-bottom:8px">The validation cohort agrees — the AXL/EMT resistance signature replicates.</div>
+            <p style="margin:0;font-size:14.5px;line-height:1.6;color:#565C6B;max-width:58ch">I worked through the night across four specialists. Three jobs landed, two findings are ready, and I've paused on <b style="color:#14161D">{{ needsCount }} things</b> that need your call before the write-up goes out. Here's the night, oldest first.</p>
+          </div>
+        </div>
+
+        <!-- timeline -->
+        <div style="position:relative;margin:22px 0 0;padding-left:30px">
+          <div style="position:absolute;left:9px;top:6px;bottom:24px;width:2px;background:#E7E9EF"></div>
+          <sc-for list="{{ events }}" as="ev" hint-placeholder-count="4">
+            <div style="position:relative;padding:0 0 20px">
+              <span style="position:absolute;left:-26px;top:3px;width:9px;height:9px;border-radius:50%;background:{{ ev.dot }};box-shadow:0 0 0 4px #F6F5F2"></span>
+              <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#9398A6;margin-bottom:3px;font-variant-numeric:tabular-nums">{{ ev.t }}</div>
+              <div style="font-size:14.5px;line-height:1.5;color:#14161D;max-width:56ch"><b style="font-weight:600">{{ ev.who }}</b> <span style="color:#565C6B">{{ ev.text }}</span></div>
+            </div>
+          </sc-for>
+
+          <!-- delivered cards -->
+          <div style="position:relative;padding:0 0 20px">
+            <span style="position:absolute;left:-26px;top:3px;width:9px;height:9px;border-radius:50%;background:#2E9E66;box-shadow:0 0 0 4px #F6F5F2"></span>
+            <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#9398A6;margin-bottom:7px">delivered overnight</div>
+            <div style="display:flex;flex-direction:column;gap:8px">
+              <sc-for list="{{ findings }}" as="f" hint-placeholder-count="3">
+                <div style="display:flex;gap:12px;align-items:center;background:#fff;border:1px solid #E7E9EF;border-radius:12px;padding:11px 13px;cursor:pointer" style-hover="border-color:#D7DBE6">
+                  <span style="width:30px;height:30px;border-radius:8px;flex:0 0 auto;display:grid;place-items:center;background:{{ f.tint }};color:{{ f.fg }};font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;font-weight:600">{{ f.type }}</span>
+                  <div style="min-width:0;flex:1"><div style="font-size:13.5px;font-weight:600;color:#14161D">{{ f.title }}</div><div style="font-size:11.5px;color:#9398A6;font-family:'Geist Mono',ui-monospace,monospace;margin-top:1px">{{ f.meta }}</div></div>
+                  <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#9398A6">{{ f.time }}</span>
+                </div>
+              </sc-for>
+            </div>
+          </div>
+
+          <!-- now node -->
+          <div style="position:relative">
+            <span style="position:absolute;left:-27px;top:2px;width:11px;height:11px;border-radius:50%;background:#0D6E78;box-shadow:0 0 0 4px #F6F5F2;animation:gl 2.4s ease-in-out infinite"></span>
+            <div style="display:flex;align-items:center;gap:8px;margin-bottom:9px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;letter-spacing:.04em;text-transform:uppercase;color:#0D6E78;font-weight:600">right now</span><span style="font-size:13.5px;color:#14161D;font-weight:600">drafting the validation write-up</span></div>
+            <dc-import name="LiveLog" live="{{ liveUpdates }}" hint-size="100%,140px"></dc-import>
+          </div>
+        </div>
+      </div>
+
+      <!-- STICKY RAIL -->
+      <aside style="position:sticky;top:78px;align-self:start;display:flex;flex-direction:column;gap:16px">
+        <section style="background:#fff;border:1px solid #E7E9EF;border-radius:14px;overflow:hidden">
+          <div style="display:flex;align-items:center;gap:9px;padding:13px 15px 11px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Needs you</span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;font-weight:600;color:#0D6E78;background:#0D6E7812;border-radius:999px;padding:1px 8px">{{ needsCount }}</span></div>
+          <sc-for list="{{ needs }}" as="item" hint-placeholder-count="4">
+            <div style="padding:12px 15px;border-top:1px solid #EEF0F4">
+              <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.1em;font-weight:600;color:{{ item.accent }};margin-bottom:4px">{{ item.kind }}</div>
+              <div style="font-size:13px;font-weight:600;color:#14161D;line-height:1.35;margin-bottom:9px">{{ item.title }}</div>
+              <div style="display:flex;gap:7px">
+                <button onClick="{{ item.onPrimary }}" style="border:0;background:#0D6E78;color:#fff;font:600 11.5px 'Geist',system-ui;padding:6px 11px;border-radius:7px;cursor:pointer">{{ item.primaryLabel }}</button>
+                <button onClick="{{ item.onSecondary }}" style="border:0;background:transparent;color:#9398A6;font:600 11.5px 'Geist',system-ui;padding:6px 4px;border-radius:7px;cursor:pointer">{{ item.secondaryLabel }}</button>
+              </div>
+            </div>
+          </sc-for>
+          <sc-if value="{{ allClear }}" hint-placeholder-val="{{ false }}">
+            <div style="padding:18px 15px;border-top:1px solid #EEF0F4;font-size:13px;color:#565C6B;display:flex;align-items:center;gap:8px"><span style="width:16px;height:16px;border-radius:50%;background:#2E9E6614;color:#2E9E66;display:grid;place-items:center;font-size:10px">✓</span>All clear.</div>
+          </sc-if>
+        </section>
+
+        <section style="background:#fff;border:1px solid #E7E9EF;border-radius:14px;overflow:hidden">
+          <div style="padding:13px 15px 11px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Working now</span></div>
+          <sc-for list="{{ specialists }}" as="sp" hint-placeholder-count="4">
+            <div style="display:flex;align-items:center;gap:9px;padding:9px 15px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;flex:0 0 auto;background:{{ sp.dot }};{{ sp.pulse }}"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12.5px;color:#14161D">{{ sp.name }}</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;text-transform:uppercase;color:{{ sp.dot }}">{{ sp.status }}</span></div>
+          </sc-for>
+        </section>
+
+        <section style="background:#fff;border:1px solid #E7E9EF;border-radius:14px;overflow:hidden">
+          <div style="padding:13px 15px 11px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#9398A6">Environments</span></div>
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 15px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#0D6E78;flex:0 0 auto;animation:hb 2.4s ease-in-out infinite"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:#14161D">sandbox</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;text-transform:uppercase;color:#0D6E78">running</span></div>
+          <sc-if value="{{ sftpNotFixed }}" hint-placeholder-val="{{ true }}">
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 15px;border-top:1px solid #EEF0F4;background:#D8453F08"><span style="width:7px;height:7px;border-radius:50%;background:#D8453F;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:#14161D">files · sftp</span><button onClick="{{ fixSftp }}" style="margin-left:auto;border:0;background:transparent;color:#D8453F;font:600 10.5px 'Geist',system-ui;cursor:pointer;padding:0">re-auth →</button></div>
+          </sc-if>
+          <sc-if value="{{ sftpFixed }}" hint-placeholder-val="{{ false }}">
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 15px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#2E9E66;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:#14161D">files · sftp</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;text-transform:uppercase;color:#2E9E66">synced</span></div>
+          </sc-if>
+          <div style="display:flex;align-items:center;gap:9px;padding:9px 15px;border-top:1px solid #EEF0F4"><span style="width:7px;height:7px;border-radius:50%;background:#2E9E66;flex:0 0 auto"></span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:12px;color:#14161D">local</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;text-transform:uppercase;color:#9398A6">synced 2m</span></div>
+        </section>
+      </aside>
+    </div>
+  </main>
+  </sc-if>
+
+  <!-- ============ SURFACE (experimental: dark command surface) ============ -->
+  <sc-if value="{{ isSurface }}" hint-placeholder-val="{{ false }}">
+  <main style="flex:1 1 auto;overflow-y:auto;background:#0C0E13">
+    <div style="max-width:1180px;margin:0 auto;padding:28px 26px 70px;color:#D6DBEA">
+
+      <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:4px">
+        <span style="font-family:'Geist Mono',ui-monospace,Menlo,monospace;font-size:10px;letter-spacing:.14em;text-transform:uppercase;color:#5E657A">Command surface</span>
+        <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11.5px;color:#8A93AB;font-variant-numeric:tabular-nums">running 7h 20m · $0.31 · sb-9f2a</span>
+      </div>
+      <div style="font-family:'Newsreader',Palatino,Georgia,serif;font-size:23px;line-height:1.28;letter-spacing:-.022em;color:#F2F4FA;max-width:40ch;margin-bottom:24px">While you slept, the validation cohort confirmed the signature. Two calls left for you.</div>
+
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:22px;align-items:start">
+
+        <!-- CONSTELLATION -->
+        <section style="background:#14171F;border:1px solid #232733;border-radius:18px;padding:18px 18px 14px">
+          <div style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#5E657A;margin-bottom:6px">The fleet</div>
+          <div style="position:relative;height:312px">
+            <!-- ring -->
+            <div style="position:absolute;left:50%;top:152px;width:222px;height:222px;border:1px solid #262C3C;border-radius:50%;transform:translate(-50%,-50%)"></div>
+            <!-- core -->
+            <div style="position:absolute;left:50%;top:152px;transform:translate(-50%,-50%);width:64px;height:64px;border-radius:18px;background:#0D6E78;display:grid;place-items:center;font-family:'Newsreader',Palatino,Georgia,serif;font-weight:600;font-size:26px;color:#fff;animation:gl 2.6s ease-in-out infinite;z-index:2">H</div>
+            <div style="position:absolute;left:50%;top:200px;transform:translateX(-50%);font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.06em;color:#6B7390;z-index:2">orchestrator</div>
+            <!-- nodes -->
+            <sc-for list="{{ specialists }}" as="sp" hint-placeholder-count="4">
+              <div style="position:absolute;left:{{ sp.x }};top:{{ sp.y }};transform:translate(-50%,-50%);display:flex;flex-direction:column;align-items:center;gap:5px;width:110px">
+                <span style="width:13px;height:13px;border-radius:50%;background:{{ sp.dot }};border:3px solid #14171F;box-shadow:0 0 0 1px {{ sp.dot }};{{ sp.pulse }}"></span>
+                <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;font-weight:600;color:#D6DBEA">{{ sp.name }}</span>
+                <span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;letter-spacing:.05em;text-transform:uppercase;color:{{ sp.dot }}">{{ sp.status }}</span>
+              </div>
+            </sc-for>
+          </div>
+        </section>
+
+        <!-- FOCUS TRIAGE STACK -->
+        <section>
+          <div style="display:flex;align-items:center;gap:9px;margin-bottom:11px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#5E657A">Clear these</span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;font-weight:600;color:#6CCFD8;background:#0D6E7822;border-radius:999px;padding:1px 8px">{{ needsCount }}</span><span style="margin-left:auto;font-family:'Geist Mono',ui-monospace,monospace;font-size:10.5px;color:#6B7390">one at a time</span></div>
+
+          <sc-if value="{{ hasFocus }}" hint-placeholder-val="{{ true }}">
+          <div style="position:relative">
+            <sc-if value="{{ peek2 }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:16px;right:16px;top:22px;bottom:-16px;background:#101219;border:1px solid #1F2533;border-radius:16px"></div></sc-if>
+            <sc-if value="{{ peek1 }}" hint-placeholder-val="{{ false }}"><div style="position:absolute;left:8px;right:8px;top:14px;bottom:-8px;background:#161922;border:1px solid #262D42;border-radius:16px"></div></sc-if>
+            <div style="position:relative;background:#181B24;border:1px solid #2A3144;border-radius:16px;padding:20px 20px 18px">
+              <div style="display:flex;align-items:center;gap:9px;margin-bottom:9px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9.5px;letter-spacing:.1em;font-weight:600;color:{{ focusNeed.accent }}">{{ focusNeed.kind }}</span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;color:#6B7390;margin-left:auto">{{ focusNeed.meta }}</span></div>
+              <div style="font-size:18px;font-weight:600;color:#F2F4FA;line-height:1.3;margin-bottom:7px">{{ focusNeed.title }}</div>
+              <div style="font-size:13.5px;color:#9AA3B8;line-height:1.55;margin-bottom:18px;max-width:46ch">{{ focusNeed.detail }}</div>
+              <div style="display:flex;gap:10px">
+                <button onClick="{{ focusNeed.onPrimary }}" style="border:0;background:#0D6E78;color:#fff;font:600 13.5px 'Geist',system-ui;padding:11px 20px;border-radius:11px;cursor:pointer">{{ focusNeed.primaryLabel }}</button>
+                <button onClick="{{ focusNeed.onSecondary }}" style="border:1px solid #2E3650;background:#1F2533;color:#C3C9DA;font:600 13.5px 'Geist',system-ui;padding:11px 20px;border-radius:11px;cursor:pointer">{{ focusNeed.secondaryLabel }}</button>
+              </div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;margin-top:14px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#6B7390">
+            <span style="color:#6CCFD8;font-weight:600">{{ needsCount }}</span> left in the queue
+          </div>
+          </sc-if>
+
+          <sc-if value="{{ allClear }}" hint-placeholder-val="{{ false }}">
+          <div style="background:#14171F;border:1px solid #232733;border-radius:16px;padding:34px 20px;text-align:center">
+            <div style="width:40px;height:40px;border-radius:50%;background:#2E9E6622;color:#5BC98C;display:grid;place-items:center;margin:0 auto 12px;font-size:18px">✓</div>
+            <div style="font-size:16px;color:#F2F4FA;font-weight:600;margin-bottom:4px">Queue cleared.</div>
+            <div style="font-size:13px;color:#8A93AB">I'll keep the fleet running and surface the next call when it comes.</div>
+          </div>
+          </sc-if>
+        </section>
+      </div>
+
+      <!-- NIGHT TAPE -->
+      <section style="background:#14171F;border:1px solid #232733;border-radius:16px;padding:15px 18px 12px;margin-top:22px">
+        <div style="display:flex;align-items:baseline;gap:12px;margin-bottom:14px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:10px;letter-spacing:.13em;text-transform:uppercase;color:#5E657A">The night</span><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#8A93AB">11:40 PM → now</span></div>
+        <div style="position:relative;height:70px">
+          <div style="position:absolute;left:4.5%;top:0;bottom:18px;border-left:1px solid #232733"></div>
+          <div style="position:absolute;left:31.5%;top:0;bottom:18px;border-left:1px solid #232733"></div>
+          <div style="position:absolute;left:58.6%;top:0;bottom:18px;border-left:1px solid #232733"></div>
+          <div style="position:absolute;left:85.6%;top:0;bottom:18px;border-left:1px solid #232733"></div>
+          <div style="position:absolute;right:0;top:0;bottom:18px;border-left:2px solid #0D6E78"></div>
+          <div style="position:absolute;right:-4px;top:-2px;width:10px;height:10px;border-radius:50%;background:#0D6E78;animation:gl 2.4s ease-in-out infinite"></div>
+          <div style="position:absolute;left:5%;top:4px;width:11%;height:18px;border-radius:5px;background:#2E9E6626;border:1px solid #2E9E6655;display:flex;align-items:center;padding:0 7px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#7FD3A6;white-space:nowrap;overflow:hidden">lit-searcher</span></div>
+          <div style="position:absolute;left:24.8%;top:26px;width:32.6%;height:18px;border-radius:5px;background:#0D6E7826;border:1px solid #0D6E7855;display:flex;align-items:center;padding:0 7px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#6CCFD8;white-space:nowrap;overflow:hidden">de_validation</span></div>
+          <div style="position:absolute;left:89%;top:26px;width:11%;height:18px;border-radius:5px;background:#B9802C26;border:1px dashed #B9802C88;display:flex;align-items:center;padding:0 6px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#D6A65A;white-space:nowrap;overflow:hidden">esm2 ⏸</span></div>
+          <div style="position:absolute;left:92%;top:48px;right:0;height:18px;border-radius:5px 0 0 5px;background:#0D6E7840;border:1px solid #0D6E78;display:flex;align-items:center;padding:0 7px"><span style="font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#BEE8ED;white-space:nowrap;overflow:hidden">drafting…</span></div>
+          <div style="position:absolute;left:4.5%;bottom:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#5E657A;transform:translateX(-50%)">12a</div>
+          <div style="position:absolute;left:31.5%;bottom:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#5E657A;transform:translateX(-50%)">2a</div>
+          <div style="position:absolute;left:58.6%;bottom:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#5E657A;transform:translateX(-50%)">4a</div>
+          <div style="position:absolute;left:85.6%;bottom:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#5E657A;transform:translateX(-50%)">6a</div>
+          <div style="position:absolute;right:0;bottom:0;font-family:'Geist Mono',ui-monospace,monospace;font-size:9px;color:#0D6E78;transform:translateX(50%)">now</div>
+        </div>
+      </section>
+
+      <!-- ENV DOTS -->
+      <div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:18px">
+        <span style="display:inline-flex;align-items:center;gap:7px;background:#14171F;border:1px solid #232733;border-radius:999px;padding:6px 12px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#C3C9DA"><span style="width:7px;height:7px;border-radius:50%;background:#0D6E78;animation:hb 2.4s ease-in-out infinite"></span>sandbox · sb-9f2a</span>
+        <span style="display:inline-flex;align-items:center;gap:7px;background:#14171F;border:1px solid #232733;border-radius:999px;padding:6px 12px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#8A93AB"><span style="width:7px;height:7px;border-radius:50%;background:#6B7390"></span>cluster · A100 idle</span>
+        <sc-if value="{{ sftpNotFixed }}" hint-placeholder-val="{{ true }}"><span style="display:inline-flex;align-items:center;gap:7px;background:#241820;border:1px solid #4a2530;border-radius:999px;padding:6px 12px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#E0635F">files · sftp <button onClick="{{ fixSftp }}" style="border:0;background:transparent;color:#E0635F;font:600 11px 'Geist',system-ui;cursor:pointer;padding:0;text-decoration:underline">re-auth</button></span></sc-if>
+        <sc-if value="{{ sftpFixed }}" hint-placeholder-val="{{ false }}"><span style="display:inline-flex;align-items:center;gap:7px;background:#14171F;border:1px solid #232733;border-radius:999px;padding:6px 12px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#7FD3A6"><span style="width:7px;height:7px;border-radius:50%;background:#2E9E66"></span>files · sftp synced</span></sc-if>
+        <span style="display:inline-flex;align-items:center;gap:7px;background:#14171F;border:1px solid #232733;border-radius:999px;padding:6px 12px;font-family:'Geist Mono',ui-monospace,monospace;font-size:11px;color:#8A93AB"><span style="width:7px;height:7px;border-radius:50%;background:#2E9E66"></span>local · synced 2m</span>
+      </div>
+    </div>
+  </main>
+  </sc-if>
+
+  <!-- TOAST -->
+  <sc-if value="{{ toast }}" hint-placeholder-val="{{ false }}">
+    <div style="position:fixed;left:50%;bottom:26px;transform:translateX(-50%);z-index:40;background:#14161D;color:#fff;font-size:13px;font-weight:500;padding:11px 18px;border-radius:11px;box-shadow:0 12px 34px -16px #14161d;display:flex;align-items:center;gap:10px;animation:pop .22s ease">
+      <span style="width:16px;height:16px;border-radius:50%;background:#2E9E66;display:grid;place-items:center;font-size:10px;flex:0 0 auto">✓</span>{{ toast }}
+    </div>
+  </sc-if>
+
+</div>
+</x-dc>
+<script type="text/x-dc" data-dc-script data-props="{&quot;$preview&quot;:{&quot;width&quot;:1280,&quot;height&quot;:900},&quot;defaultView&quot;:{&quot;editor&quot;:&quot;enum&quot;,&quot;options&quot;:[&quot;brief&quot;,&quot;stream&quot;,&quot;surface&quot;],&quot;default&quot;:&quot;stream&quot;,&quot;tsType&quot;:&quot;string&quot;},&quot;liveUpdates&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;},&quot;digestExpanded&quot;:{&quot;editor&quot;:&quot;boolean&quot;,&quot;default&quot;:true,&quot;tsType&quot;:&quot;boolean&quot;}}">
+class Component extends DCLogic {
+  state = { view: null, digestOpen: null, needs: null, toast: null, sftpFixed: false };
+
+  baseNeeds() {
+    return [
+      { id:'n1', kind:'APPROVAL', accent:'#0D6E78', title:'Run esm2_finetune on the cluster',
+        detail:'code-writer wants an A100 for ~40 min · est. $14 · egress locked', meta:'cluster · SLURM',
+        primaryLabel:'Approve', secondaryLabel:'Decline',
+        okToast:'Approved — esm2_finetune queued on the A100', noToast:'Declined — job not submitted' },
+      { id:'n2', kind:'DECISION', accent:'#B9802C', title:'Pick the resistance panel to take forward',
+        detail:'12-gene (tighter, q \u2264 1e-5) vs 18-gene (broader EMT coverage)', meta:'blocks the write-up',
+        primaryLabel:'12-gene', secondaryLabel:'18-gene',
+        okToast:'Locked in the 12-gene panel', noToast:'Locked in the 18-gene panel' },
+      { id:'n3', kind:'REVIEW', accent:'#0D6E78', title:'Edit to analysis.py — +9 \u22121',
+        detail:'adds volcano() and labels AXL / CDH1 · ran clean in sb-9f2a', meta:'sandbox sb-9f2a',
+        primaryLabel:'Accept', secondaryLabel:'Open diff',
+        okToast:'Accepted the edit to analysis.py', noToast:'Opening the diff in Workspace\u2026' },
+      { id:'n4', kind:'BLOCKED', accent:'#D8453F', title:'Files server (SFTP) auth expired',
+        detail:'can\u2019t reach /data/cohorts on files.lab — re-auth to continue the cohort pull', meta:'files · sftp',
+        primaryLabel:'Re-authenticate', secondaryLabel:'Dismiss',
+        okToast:'Re-authenticated — cohort pull resumed', noToast:'Dismissed for now' },
+    ];
+  }
+
+  componentDidMount() {
+    this.setState({
+      view: this.props.defaultView || 'stream',
+      digestOpen: this.props.digestExpanded !== false,
+      needs: this.baseNeeds(),
+    });
+  }
+  componentDidUpdate(prev) {
+    if (prev.defaultView !== this.props.defaultView && this.props.defaultView) this.setState({ view: this.props.defaultView });
+  }
+  componentWillUnmount() { if (this._tt) clearTimeout(this._tt); }
+
+  toast(msg) {
+    this.setState({ toast: msg });
+    if (this._tt) clearTimeout(this._tt);
+    this._tt = setTimeout(() => this.setState({ toast: null }), 2600);
+  }
+  resolve(id, msg) {
+    this.setState(s => ({ needs: (s.needs || []).filter(n => n.id !== id) }));
+    if (id === 'n4') this.setState({ sftpFixed: true });
+    this.toast(msg);
+  }
+
+  renderVals() {
+    const view = this.state.view || 'stream';
+    const raw = this.state.needs || [];
+    const goWorkspace = () => { window.location.href = 'Hermes Workspace.dc.html'; };
+    const needs = raw.map(n => ({
+      ...n,
+      onPrimary: () => this.resolve(n.id, n.okToast),
+      onSecondary: n.id === 'n3' ? goWorkspace : () => this.resolve(n.id, n.noToast),
+    }));
+    const base = 'border:0;background:transparent;color:#565C6B;padding:6px 14px;border-radius:7px;font:600 12.5px Geist,system-ui;cursor:pointer';
+    const on = 'border:0;background:#FFFFFF;color:#0D6E78;padding:6px 14px;border-radius:7px;font:600 12.5px Geist,system-ui;cursor:pointer;box-shadow:0 1px 3px #14161d18';
+    const pulse = 'animation:hb 2.2s ease-in-out infinite';
+    const pos = ['50%,18px', '84%,152px', '50%,286px', '16%,152px'];
+    const specialists = [
+      { name:'synthesizer', doing:'Drafting the validation write-up — section 2 of 3.', status:'working', dot:'#0D6E78', pulse },
+      { name:'code-writer', doing:'Re-ran DE in sb-9f2a; proposed the volcano() edit to review.', status:'working', dot:'#0D6E78', pulse },
+      { name:'lit-searcher', doing:'Pulled 4 peer-reviewed primaries on AXL persistence.', status:'done', dot:'#2E9E66', pulse:'' },
+      { name:'verifier', doing:'Queued to check direction vs the literature.', status:'queued', dot:'#9398A6', pulse:'' },
+    ].map((s, i) => { const [x, y] = pos[i].split(','); return { ...s, x, y }; });
+    const events = [
+      { t:'12:25 AM', who:'lit-searcher', text:'pulled 4 peer-reviewed primaries on AXL-driven persistence.', dot:'#2E9E66' },
+      { t:'3:55 AM', who:'de_validation', text:'finished on Modal — 214 genes q<0.05, direction matches discovery.', dot:'#2E9E66' },
+      { t:'5:10 AM', who:'SFTP pull', text:'stalled — files.lab credentials expired mid-fetch, paused and flagged.', dot:'#D8453F' },
+      { t:'6:40 AM', who:'synthesizer', text:'started drafting the validation write-up — held at the panel decision.', dot:'#0D6E78' },
+    ];
+    const findings = [
+      { type:'DOC', tint:'#0D6E7812', fg:'#0D6E78', title:'EMT resistance signature holds on the validation cohort', meta:'write-up · draft · synthesizer', time:'2m' },
+      { type:'IMG', tint:'#EEF1F6', fg:'#565C6B', title:'volcano_validation.png', meta:'figure · n=412 · AXL, VIM, CDH1 labelled', time:'12m' },
+      { type:'DATA', tint:'#2E9E6614', fg:'#2E9E66', title:'de_validation.parquet', meta:'214 genes q<0.05 · 988 × 19193', time:'3h' },
+      { type:'LIT', tint:'#B9802C14', fg:'#B9802C', title:'4 primaries on AXL-driven persistence', meta:'digest · Adachi 2023, Hata 2022 +2', time:'7h' },
+    ];
+    const projects = [
+      { name:'KRAS-G12C resistance mechanisms', meta:'3 open threads · sandbox · updated 2m', dot:'#0D6E78', pulse:'animation:hb 2.4s ease-in-out infinite', ink:'#14161D' },
+      { name:'Persister-cell ESM2 embeddings', meta:'job waiting on your approval', dot:'#B9802C', pulse:'', ink:'#14161D' },
+      { name:'Patient cohort re-analysis', meta:'blocked · sftp auth expired', dot:'#D8453F', pulse:'', ink:'#14161D' },
+      { name:'Adagrasib combination screen', meta:'paused · last touched 2d ago', dot:'#9398A6', pulse:'', ink:'#565C6B' },
+    ];
+    return {
+      view, isBrief: view === 'brief', isStream: view === 'stream', isSurface: view === 'surface',
+      onBrief: () => this.setState({ view:'brief' }), onStream: () => this.setState({ view:'stream' }), onSurface: () => this.setState({ view:'surface' }),
+      sbBrief: view === 'brief' ? on : base, sbStream: view === 'stream' ? on : base, sbSurface: view === 'surface' ? on : base,
+      needs, needsCount: needs.length, allClear: needs.length === 0,
+      hasFocus: needs.length > 0, focusNeed: needs[0] || {}, peek1: needs.length > 1, peek2: needs.length > 2,
+      specialists, events, findings, projects,
+      liveUpdates: this.props.liveUpdates !== false,
+      digestOpen: this.state.digestOpen, digestBtn: this.state.digestOpen ? 'Hide overnight log' : 'Show overnight log',
+      toggleDigest: () => this.setState(s => ({ digestOpen: !s.digestOpen })),
+      sftpFixed: this.state.sftpFixed, sftpNotFixed: !this.state.sftpFixed,
+      fixSftp: () => this.resolve('n4', 'Re-authenticated — cohort pull resumed'),
+      openWorkspace: goWorkspace,
+      toast: this.state.toast,
+    };
+  }
+}
+</script>
+</body>
+</html>

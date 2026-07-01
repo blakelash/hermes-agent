@@ -17,6 +17,7 @@ import sys
 import threading
 import time
 import unicodedata
+import uuid
 from typing import Optional
 from hermes_cli.config import cfg_get
 
@@ -689,16 +690,107 @@ _permanent_approved: set = set()
 
 class _ApprovalEntry:
     """One pending dangerous-command approval inside a gateway session."""
-    __slots__ = ("event", "data", "result")
+    __slots__ = ("event", "data", "result", "request_id")
 
     def __init__(self, data: dict):
         self.event = threading.Event()
         self.data = data          # command, description, pattern_keys, …
         self.result: Optional[str] = None  # "once"|"session"|"always"|"deny"
+        # Stable id so an out-of-order client (the operator Dashboard) can
+        # resolve a specific pending request rather than only the FIFO head.
+        # Surfaced to clients via the approval.request event payload and
+        # list_pending_approvals().
+        self.request_id: str = uuid.uuid4().hex[:12]
 
 
 _gateway_queues: dict[str, list] = {}        # session_key → [_ApprovalEntry, …]
 _gateway_notify_cbs: dict[str, object] = {}  # session_key → callable(approval_data)
+# Per-session callback fired when the pending-approval set changes (enqueue or
+# resolve). The Dashboard registers this so it can refresh without polling;
+# payload is small ({"needs_count": N, "request_ids": [...]}). Optional — most
+# surfaces (CLI, messaging) never register one.
+_gateway_dashboard_cbs: dict[str, object] = {}
+
+
+def register_gateway_dashboard_notify(session_key: str, cb) -> None:
+    """Register a per-session callback fired when the pending set changes.
+
+    The callback signature is ``cb(payload: dict) -> None`` where *payload*
+    contains ``needs_count`` (int) and ``request_ids`` (list[str]). Used by the
+    operator Dashboard to refresh its pending-approvals view without polling.
+    """
+    with _lock:
+        _gateway_dashboard_cbs[session_key] = cb
+
+
+def unregister_gateway_dashboard_notify(session_key: str) -> None:
+    """Unregister the per-session dashboard-change callback."""
+    with _lock:
+        _gateway_dashboard_cbs.pop(session_key, None)
+
+
+def _notify_dashboard_change(session_key: str) -> None:
+    """Fire the dashboard-change callback for *session_key* if registered.
+
+    Reads the current pending count + ids under the lock, then invokes the
+    callback outside the lock (it may bridge sync→async and we must not hold
+    ``_lock`` across foreign code). Never raises — a broken observer must not
+    wedge the approval flow.
+    """
+    with _lock:
+        cb = _gateway_dashboard_cbs.get(session_key)
+        if cb is None:
+            return
+        queue = _gateway_queues.get(session_key, [])
+        payload = {
+            "needs_count": len(queue),
+            "request_ids": [entry.request_id for entry in queue],
+        }
+    try:
+        cb(payload)
+    except Exception as exc:  # noqa: BLE001 - observer must never break approvals
+        logger.debug("Dashboard change notify failed: %s", exc)
+
+
+def list_pending_approvals(session_key: str) -> list[dict]:
+    """Return a non-destructive snapshot of the session's pending approvals.
+
+    Each entry is ``{request_id, command, description, ...}`` — the stable
+    request id plus every field of the underlying approval data (command,
+    description, pattern_key(s), …). Order matches the FIFO queue (oldest
+    first). Thread-safe; does not mutate or resolve anything.
+    """
+    with _lock:
+        queue = list(_gateway_queues.get(session_key, []))
+    snapshot: list[dict] = []
+    for entry in queue:
+        item = dict(entry.data or {})
+        item["request_id"] = entry.request_id
+        snapshot.append(item)
+    return snapshot
+
+
+def list_all_pending_approvals() -> list[dict]:
+    """Non-destructive snapshot of pending approvals across EVERY session.
+
+    Powers the profile-global Dashboard inbox: returns each pending entry from
+    every queue in ``_gateway_queues``, tagged with its owning ``session_key``
+    (plus ``request_id`` and the underlying approval data). The gateway maps
+    ``session_key`` → the live ``session_id`` before sending to clients, since
+    ``approval.respond`` is addressed by ``session_id`` + ``request_id``.
+
+    Thread-safe; does not mutate or resolve anything.
+    """
+    with _lock:
+        items = [(key, list(queue)) for key, queue in _gateway_queues.items()]
+    snapshot: list[dict] = []
+    for session_key, queue in items:
+        for entry in queue:
+            item = dict(entry.data or {})
+            item["request_id"] = entry.request_id
+            item["session_key"] = session_key
+            snapshot.append(item)
+    return snapshot
 
 
 def register_gateway_notify(session_key: str, cb) -> None:
@@ -721,27 +813,36 @@ def unregister_gateway_notify(session_key: str) -> None:
     """
     with _lock:
         _gateway_notify_cbs.pop(session_key, None)
+        _gateway_dashboard_cbs.pop(session_key, None)
         entries = _gateway_queues.pop(session_key, [])
     for entry in entries:
         entry.event.set()
 
 
 def resolve_gateway_approval(session_key: str, choice: str,
+                             request_id: str | None = None,
                              resolve_all: bool = False) -> int:
     """Called by the gateway's /approve or /deny handler to unblock
     waiting agent thread(s).
 
-    When *resolve_all* is True every pending approval in the session is
-    resolved at once (``/approve all``).  Otherwise only the oldest one
-    is resolved (FIFO).
+    Resolution target, in priority order:
+    - *request_id* set → resolve the single entry with that id (the Dashboard
+      acts on a specific pending request, which may not be the FIFO head).
+    - *resolve_all* True → resolve every pending approval at once
+      (``/approve all``).
+    - otherwise → resolve only the oldest one (FIFO).
 
-    Returns the number of approvals resolved (0 means nothing was pending).
+    Returns the number of approvals resolved (0 means nothing matched).
     """
     with _lock:
         queue = _gateway_queues.get(session_key)
         if not queue:
             return 0
-        if resolve_all:
+        if request_id is not None:
+            targets = [e for e in queue if e.request_id == request_id]
+            for entry in targets:
+                queue.remove(entry)
+        elif resolve_all:
             targets = list(queue)
             queue.clear()
         else:
@@ -752,6 +853,9 @@ def resolve_gateway_approval(session_key: str, choice: str,
     for entry in targets:
         entry.result = choice
         entry.event.set()
+    # The pending set shrank — let the Dashboard refresh without polling.
+    if targets:
+        _notify_dashboard_change(session_key)
     return len(targets)
 
 
@@ -1370,6 +1474,11 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
     all_keys = approval_data.get("pattern_keys", [primary_key])
 
     entry = _ApprovalEntry(approval_data)
+    # Stamp the stable request id onto the notified payload so clients (the
+    # Dashboard) receive it on the approval.request event and can later resolve
+    # this specific entry by id. The same id is exposed by
+    # list_pending_approvals().
+    approval_data["request_id"] = entry.request_id
     with _lock:
         _gateway_queues.setdefault(session_key, []).append(entry)
 
@@ -1380,6 +1489,9 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
                 queue.remove(entry)
             if not queue:
                 _gateway_queues.pop(session_key, None)
+        # The pending set shrank (timeout / interrupt / notify failure) — keep
+        # the Dashboard's view in sync without polling.
+        _notify_dashboard_change(session_key)
 
     # Notify plugins that an approval is being requested. Fires before the
     # gateway notify callback so observers get the event in real time.
@@ -1400,6 +1512,11 @@ def _await_gateway_decision(session_key: str, notify_cb, approval_data: dict,
         logger.warning("Gateway approval notify failed: %s", exc)
         _drop_entry()
         return {"resolved": False, "choice": None, "notify_failed": True}
+
+    # The pending set grew — let the Dashboard refresh its view without polling.
+    # Fires after the notify so a notify failure (handled above) doesn't emit a
+    # spurious "+1 pending" the entry was just rolled back from.
+    _notify_dashboard_change(session_key)
 
     # Block until the user responds or timeout (default 5 min). Poll in short
     # slices so we can fire activity heartbeats every ~10s to the agent's

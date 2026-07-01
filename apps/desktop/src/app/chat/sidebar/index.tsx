@@ -36,7 +36,6 @@ import {
 import { Skeleton } from '@/components/ui/skeleton'
 import { Tip } from '@/components/ui/tooltip'
 import { searchSessions, type SessionInfo, type SessionSearchResult } from '@/hermes'
-import { useWorktreeInfo } from '@/hooks/use-worktree-info'
 import { useI18n } from '@/i18n'
 import { comboTokens } from '@/lib/keybinds/combo'
 import { profileColor } from '@/lib/profile-color'
@@ -44,6 +43,7 @@ import { sessionMatchesSearch } from '@/lib/session-search'
 import { normalizeSessionSource, sessionSourceLabel } from '@/lib/session-source'
 import { cn } from '@/lib/utils'
 import { $cronJobs } from '@/store/cron'
+import { $projects } from '@/store/dashboard'
 import {
   $panesFlipped,
   $pinnedSessionIds,
@@ -56,8 +56,6 @@ import {
   $sidebarRecentsOpen,
   $sidebarSessionOrderIds,
   $sidebarSessionOrderManual,
-  $sidebarWorkspaceOrderIds,
-  $sidebarWorkspaceParentOrderIds,
   pinSession,
   SESSION_SEARCH_FOCUS_EVENT,
   setPinnedSessionOrder,
@@ -67,8 +65,6 @@ import {
   setSidebarRecentsOpen,
   setSidebarSessionOrderIds,
   setSidebarSessionOrderManual,
-  setSidebarWorkspaceOrderIds,
-  setSidebarWorkspaceParentOrderIds,
   SIDEBAR_SESSIONS_PAGE_SIZE,
   toggleSidebarMessagingOpen,
   unpinSession
@@ -103,9 +99,10 @@ import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { resolveManualSessionOrderIds } from './order'
 import { ProfileRail } from './profile-switcher'
+import { projectGroupsFor } from './project-groups'
 import { SidebarSessionRow } from './session-row'
 import { VirtualSessionList } from './virtual-session-list'
-import { type SidebarSessionGroup, type SidebarWorkspaceTree, workspaceTreeFor } from './workspace-groups'
+import { type SidebarSessionGroup, type SidebarWorkspaceTree } from './workspace-groups'
 
 const VIRTUALIZE_THRESHOLD = 25
 
@@ -227,27 +224,6 @@ function orderByIds<T>(items: T[], getId: (item: T) => string, orderIds: string[
   return fresh.length ? [...fresh, ...ordered] : ordered
 }
 
-function reconcileOrderIds(currentIds: string[], orderIds: string[]): string[] {
-  if (!currentIds.length) {
-    return []
-  }
-
-  if (!orderIds.length) {
-    return currentIds
-  }
-
-  const current = new Set(currentIds)
-  const retained = orderIds.filter(id => current.has(id))
-  const retainedSet = new Set(retained)
-
-  // New ids (absent from the saved order) are the newest sessions/groups; keep
-  // them ahead of the persisted order so fresh activity surfaces at the top of
-  // the sidebar rather than being appended to the bottom.
-  const fresh = currentIds.filter(id => !retainedSet.has(id))
-
-  return [...fresh, ...retained]
-}
-
 function sameIds(left: string[], right: string[]) {
   return left.length === right.length && left.every((item, index) => item === right[index])
 }
@@ -358,8 +334,7 @@ export function ChatSidebar({
   const showAllProfiles = multiProfile && profileScope === ALL_PROFILES
   const agentOrderIds = useStore($sidebarSessionOrderIds)
   const agentOrderManual = useStore($sidebarSessionOrderManual)
-  const workspaceOrderIds = useStore($sidebarWorkspaceOrderIds)
-  const workspaceParentOrderIds = useStore($sidebarWorkspaceParentOrderIds)
+  const projects = useStore($projects)
   const [searchQuery, setSearchQuery] = useState('')
   const [serverMatches, setServerMatches] = useState<SessionSearchResult[]>([])
   const [newSessionKbdFlash, setNewSessionKbdFlash] = useState(false)
@@ -533,6 +508,7 @@ export function ChatSidebar({
 
     if (!next.length && agentOrderIds.length) {
       setSidebarSessionOrderIds([])
+
       return
     }
 
@@ -550,26 +526,21 @@ export function ChatSidebar({
   // own slice ($messagingSessions) and rendered in self-managed per-platform
   // sections below, so there is no source-grouping magic to untangle here.
   //
-  // Workspace grouping is a `parent (repo) → worktree → sessions` tree. Git
-  // metadata (probed locally) is authoritative; unresolved cwds fall back to a
-  // path-name heuristic inside workspaceTreeFor. Parents reorder via
-  // workspaceParentOrderIds; worktrees within a parent via workspaceOrderIds.
-  const worktreeGroupingActive = agentsGrouped && !showAllProfiles
-  const worktreeResolver = useWorktreeInfo(agentSessions, worktreeGroupingActive)
+  // Grouped mode organizes sessions by PROJECT: each registered project is a
+  // group (keyed by the longest cwd-prefix match, the client-side twin of the
+  // backend `project_for_cwd`), sessions under no project fall into
+  // "Unassigned". Every project shows even when empty so it stays a visible,
+  // droppable target. Messaging sessions gain project membership once they
+  // carry a per-session project cwd (gateway work) and then flow in here too.
+  const projectGroupingActive = agentsGrouped && !showAllProfiles
 
-  const agentTree = useMemo<SidebarWorkspaceTree[] | undefined>(() => {
-    if (!worktreeGroupingActive) {
+  const projectGroups = useMemo<SidebarSessionGroup[] | undefined>(() => {
+    if (!projectGroupingActive) {
       return undefined
     }
 
-    const tree = workspaceTreeFor(agentSessions, s.noWorkspace, worktreeResolver)
-    const orderedParents = orderByIds(tree, parent => parent.id, workspaceParentOrderIds)
-
-    return orderedParents.map(parent => ({
-      ...parent,
-      groups: orderByIds(parent.groups, group => group.id, workspaceOrderIds)
-    }))
-  }, [worktreeGroupingActive, agentSessions, s.noWorkspace, worktreeResolver, workspaceParentOrderIds, workspaceOrderIds])
+    return projectGroupsFor(agentSessions, projects, s.unassigned)
+  }, [projectGroupingActive, agentSessions, projects, s.unassigned])
 
   const loadMoreForProfileGroup = useCallback(
     (profile: string) => {
@@ -723,42 +694,17 @@ export function ChatSidebar({
 
   const recentsMeta = countLabel(agentSessions.length, knownSessionTotal)
 
-  const displayAgentGroups = showAllProfiles ? profileGroups : undefined
+  // Grouped mode → project groups; ALL-profiles → per-profile groups; else the
+  // flat list. Both grouped shapes render through the same `groups` prop path.
+  const displayAgentGroups = showAllProfiles ? profileGroups : projectGroups
 
   // The recents list owns its own (virtualized) scroll container only when it's a
   // long flat list. In that case it must keep its scroller even in short mode, so
   // we don't flatten it (flattening would defeat virtualization). Short flat lists
-  // and grouped views (profile groups or the worktree tree) flatten into the
-  // single outer scroll instead.
+  // and grouped views (profile or project groups) flatten into the single outer
+  // scroll instead.
   const recentsVirtualizes =
-    !displayAgentGroups?.length && !agentTree?.length && displayAgentSessions.length >= VIRTUALIZE_THRESHOLD
-
-  // Keep the persisted parent + worktree orders reconciled with what's on screen:
-  // freshly-seen repos/worktrees surface at the top, vanished ones drop out of
-  // the saved order.
-  useEffect(() => {
-    if (!agentTree?.length) {
-      return
-    }
-
-    const nextParents = reconcileOrderIds(
-      agentTree.map(parent => parent.id),
-      workspaceParentOrderIds
-    )
-
-    if (!sameIds(nextParents, workspaceParentOrderIds)) {
-      setSidebarWorkspaceParentOrderIds(nextParents)
-    }
-
-    const nextWorktrees = reconcileOrderIds(
-      agentTree.flatMap(parent => parent.groups.map(group => group.id)),
-      workspaceOrderIds
-    )
-
-    if (!sameIds(nextWorktrees, workspaceOrderIds)) {
-      setSidebarWorkspaceOrderIds(nextWorktrees)
-    }
-  }, [agentTree, workspaceParentOrderIds, workspaceOrderIds])
+    !displayAgentGroups?.length && displayAgentSessions.length >= VIRTUALIZE_THRESHOLD
 
   const showSessionSkeletons = sessionsLoading && sortedSessions.length === 0
 
@@ -770,15 +716,6 @@ export function ChatSidebar({
     setSidebarSessionOrderManual(true)
     setSidebarSessionOrderIds(ids)
   }
-
-  const reorderParents = (ids: string[]) => setSidebarWorkspaceParentOrderIds(ids)
-
-  // Worktrees persist as one flat list (orderByIds applies it per parent), so a
-  // single parent's new worktree order is spliced back over its slice.
-  const reorderWorktree = (parentId: string, ids: string[]) =>
-    setSidebarWorkspaceOrderIds(
-      (agentTree ?? []).flatMap(parent => (parent.id === parentId ? ids : parent.groups.map(group => group.id)))
-    )
 
   // Sortable rows carry live session ids; the pinned store is keyed by durable
   // (lineage-root) ids, so translate before persisting the new order.
@@ -949,10 +886,10 @@ export function ChatSidebar({
                 dndSensors={dndSensors}
                 emptyState={showSessionSkeletons ? <SidebarSessionSkeletons /> : <SidebarAllPinnedState />}
                 footer={
-                  // Hide "load more" only when workspace-grouped (those groups page
-                  // themselves). ALL-profiles now pages per-profile from each profile
-                  // header; the global footer only applies to non-ALL views.
-                  !showAllProfiles && !agentsGrouped && !showSessionSkeletons && hasMoreSessions ? (
+                  // Project groups regroup the loaded page (they don't self-page),
+                  // so the global "load more" still applies when grouped. ALL-profiles
+                  // pages per-profile from each profile header, so it's excluded here.
+                  !showAllProfiles && !showSessionSkeletons && hasMoreSessions ? (
                     <SidebarLoadMoreRow
                       loading={sessionsLoading}
                       onClick={onLoadMoreSessions}
@@ -997,9 +934,7 @@ export function ChatSidebar({
                 onArchiveSession={onArchiveSession}
                 onDeleteSession={onDeleteSession}
                 onNewSessionInWorkspace={showAllProfiles ? undefined : onNewSessionInWorkspace}
-                onReorderParents={showAllProfiles ? undefined : reorderParents}
                 onReorderSessions={showAllProfiles ? undefined : reorderSessions}
-                onReorderWorktree={showAllProfiles ? undefined : reorderWorktree}
                 onResumeSession={onResumeSession}
                 onToggle={() => setSidebarRecentsOpen(!agentsOpen)}
                 onTogglePin={pinSession}
@@ -1011,7 +946,6 @@ export function ChatSidebar({
                 )}
                 sessions={displayAgentSessions}
                 sortable={!showAllProfiles && agentSessions.length > 1}
-                tree={agentTree}
                 workingSessionIdSet={workingSessionIdSet}
               />
             )}

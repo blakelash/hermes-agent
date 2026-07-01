@@ -24,6 +24,7 @@ import {
   type IconComponent,
   Info,
   KeyRound,
+  LayoutDashboard,
   MessageCircle,
   Monitor,
   Moon,
@@ -53,12 +54,14 @@ import {
   ARTIFACTS_ROUTE,
   COMMAND_CENTER_ROUTE,
   CRON_ROUTE,
+  DASHBOARD_ROUTE,
   MESSAGING_ROUTE,
   NEW_CHAT_ROUTE,
   PROFILES_ROUTE,
   sessionRoute,
   SETTINGS_ROUTE,
-  SKILLS_ROUTE
+  SKILLS_ROUTE,
+  WORKSPACE_ROUTE
 } from '../routes'
 import { FIELD_LABELS, SECTIONS } from '../settings/constants'
 import { fieldCopyForSchemaKey } from '../settings/field-copy'
@@ -300,6 +303,20 @@ export function CommandPalette() {
             keywords: ['chat', 'create'],
             label: cc.nav.newChat.title,
             run: go(NEW_CHAT_ROUTE)
+          },
+          {
+            icon: LayoutDashboard,
+            id: 'nav-dashboard',
+            keywords: ['home', 'stream', 'overview', 'needs', 'fleet'],
+            label: 'Dashboard',
+            run: go(DASHBOARD_ROUTE)
+          },
+          {
+            icon: Terminal,
+            id: 'nav-workspace',
+            keywords: ['ide', 'editor', 'files', 'diff', 'review'],
+            label: 'Workspace',
+            run: go(WORKSPACE_ROUTE)
           },
           {
             action: 'view.showTerminal',

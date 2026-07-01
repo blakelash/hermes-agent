@@ -9,8 +9,11 @@ export interface SidebarSessionGroup {
   // Profile color for the ALL-profiles view; absent for workspace groups.
   color?: null | string
   loadingMore?: boolean
-  mode?: 'profile' | 'source' | 'workspace'
+  mode?: 'profile' | 'project' | 'source' | 'workspace'
   onLoadMore?: () => void
+  /** Target project slug when {@link mode} is 'project' — the drop target for
+   *  reassignment and the key the group renders from. Empty for "Unassigned". */
+  projectSlug?: string
   sourceId?: string
   totalCount?: number
 }
