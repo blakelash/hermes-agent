@@ -269,7 +269,14 @@ export function useDashboardData(
   useEffect(() => {
     void refresh()
 
-    return () => window.clearTimeout(refreshTimer.current)
+    // Poll as a fallback so the surface stays current across reconnects and
+    // activity that doesn't emit a dashboard.update (the snapshot is cheap).
+    const poll = window.setInterval(() => void refresh(), 10_000)
+
+    return () => {
+      window.clearTimeout(refreshTimer.current)
+      window.clearInterval(poll)
+    }
   }, [refresh])
 
   useEffect(() => {
