@@ -145,20 +145,24 @@ def _norm(path: str) -> str:
     return os.path.realpath(os.path.abspath(os.path.expanduser(str(path or ""))))
 
 
-def project_for_cwd(path: str) -> dict | None:
+def project_for_cwd(path: str, projects: list[dict] | None = None) -> dict | None:
     """Return the project whose root contains *path* (longest-prefix match).
 
     A path under ``<project_cwd>`` (the root itself or any descendant) belongs
     to that project. When project roots nest, the deepest (longest) matching
     root wins. Returns None when *path* is under no registered project.
+
+    Pass a pre-loaded *projects* list to match many paths without re-reading the
+    registry per call (the gateway does this when tagging a whole session list).
     """
     target = _norm(path)
     if not target:
         return None
     best: dict | None = None
     best_len = -1
-    with _lock:
-        projects = _read()
+    if projects is None:
+        with _lock:
+            projects = _read()
     for p in projects:
         root = _norm(p.get("cwd", ""))
         if not root:

@@ -4702,6 +4702,25 @@ def _(rid, params: dict) -> dict:
             for s in db.list_sessions_rich(source=None, limit=fetch_limit)
             if (s.get("source") or "").strip().lower() not in deny
         ][:limit]
+        # Tag each session with the project its cwd belongs to (longest-prefix
+        # match, the same derivation the desktop uses for live sessions). This
+        # is what lets the sidebar group sessions from EVERY platform — desktop,
+        # Telegram, Slack — under one project tree from a single feed. The
+        # registry is read once and reused across the whole list. Sessions with
+        # no cwd or a cwd under no project get "" (the "Unassigned" bucket).
+        try:
+            from tools.projects import list_projects, project_for_cwd
+
+            _projects = list_projects()
+        except Exception:
+            _projects, project_for_cwd = [], None
+
+        def _slug_for(cwd: str) -> str:
+            if not cwd or project_for_cwd is None:
+                return ""
+            match = project_for_cwd(cwd, _projects)
+            return str(match.get("slug") or "") if match else ""
+
         return _ok(
             rid,
             {
@@ -4711,8 +4730,12 @@ def _(rid, params: dict) -> dict:
                         "title": s.get("title") or "",
                         "preview": s.get("preview") or "",
                         "started_at": s.get("started_at") or 0,
+                        "last_active": s.get("last_active") or s.get("started_at") or 0,
+                        "ended_at": s.get("ended_at") or 0,
                         "message_count": s.get("message_count") or 0,
                         "source": s.get("source") or "",
+                        "cwd": s.get("cwd") or "",
+                        "project": _slug_for(s.get("cwd") or ""),
                     }
                     for s in rows
                 ]
@@ -5106,10 +5129,12 @@ def _(rid, params: dict) -> dict:
     if session.get("running"):
         return _err(rid, 4009, "session busy")
     raw = str(params.get("cwd", "") or "").strip()
-    if not raw:
-        return _err(rid, 4016, "cwd required")
     # An optional ``project`` rebinds the session before the cwd is applied, so
-    # the containment check in _set_session_cwd uses the new project's root.
+    # the containment check in _set_session_cwd uses the new project's root. When
+    # no ``cwd`` is supplied, the bind picks the session's workspace within the
+    # project (its ``<project_root>/<session_id>`` subdir, or a kept explicit cwd
+    # inside the root) — this supports a project-only reassign (e.g. drag-and-drop
+    # onto a project) without the caller having to compute the destination path.
     if "project" in params:
         try:
             _bind_session_project(
@@ -5117,6 +5142,10 @@ def _(rid, params: dict) -> dict:
             )
         except ValueError as e:
             return _err(rid, 4018, str(e))
+        if not raw:
+            raw = str(session.get("cwd") or "").strip()
+    if not raw:
+        return _err(rid, 4016, "cwd required")
     try:
         cwd = _set_session_cwd(session, raw)
     except ValueError as e:
