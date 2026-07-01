@@ -123,6 +123,33 @@ export const setNeeds = (needs: NeedItem[]) => $needs.set(needs)
 export const removeNeed = (id: string) => $needs.set($needs.get().filter(n => n.id !== id))
 export const setSpecialists = (list: Specialist[]) => $specialists.set(list)
 export const setProjects = (list: Project[]) => $projects.set(list)
+
+// Raw `projects.list` / `dashboard.snapshot` project entry (camelCase, matches
+// the gateway payload). Shared by the Dashboard snapshot mapper and the
+// sidebar's projects-sync so both derive the same Project shape.
+export interface RawProject {
+  slug?: string
+  name?: string
+  cwd?: string
+  sessionCount?: number
+  status?: string
+}
+
+const toProjectStatus = (status?: string): ProjectStatus =>
+  status === 'blocked' ? 'blocked' : status === 'working' ? 'working' : 'idle'
+
+export function mapRawProjects(raw: RawProject[]): Project[] {
+  return raw
+    .filter(p => typeof p.slug === 'string')
+    .map(p => ({
+      slug: p.slug as string,
+      name: p.name?.trim() || (p.slug as string),
+      cwd: p.cwd ?? '',
+      sessionCount: typeof p.sessionCount === 'number' ? p.sessionCount : 0,
+      status: toProjectStatus(p.status)
+    }))
+}
+
 export const setEnvironments = (rows: EnvRow[]) => $environments.set(rows)
 export const setDashboardCost = (cost: DashboardCost | null) => $dashboardCost.set(cost)
 

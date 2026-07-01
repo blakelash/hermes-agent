@@ -101,6 +101,7 @@ import {
   PREVIEW_RAIL_PANE_WIDTH
 } from './chat/right-rail'
 import { ChatSidebar } from './chat/sidebar'
+import { useProjectsSync } from './chat/use-projects-sync'
 import { CommandPalette } from './command-palette'
 import { useGatewayBoot } from './gateway/hooks/use-gateway-boot'
 import { useGatewayRequest } from './gateway/hooks/use-gateway-request'
@@ -272,6 +273,10 @@ export function DesktopController() {
   })
 
   const { connectionRef, gatewayRef, requestGateway } = useGatewayRequest()
+
+  // Seed $projects in the chat context so the sidebar can group sessions by
+  // project without the Dashboard being open. Re-runs when the gateway opens.
+  useProjectsSync(gatewayState === 'open' ? (gatewayRef.current ?? null) : null, requestGateway)
 
   useEffect(() => {
     window.hermesDesktop?.setPreviewShortcutActive?.(Boolean(chatOpen && (filePreviewTarget || previewTarget)))

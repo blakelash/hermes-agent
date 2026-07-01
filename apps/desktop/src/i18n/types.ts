@@ -939,6 +939,7 @@ export interface Translations {
     allPinned: string
     shiftClickHint: string
     noWorkspace: string
+    unassigned: string
     newSessionIn: (label: string) => string
     reorderWorkspace: (label: string) => string
     showMoreIn: (count: number, label: string) => string
