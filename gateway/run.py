@@ -11157,6 +11157,18 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         from pathlib import Path
         from urllib.parse import quote as _quote
 
+        # Sandbox-side artifacts (remote terminal backends) must be fetched to
+        # the host before the extractors' exists() checks drop them.
+        try:
+            from gateway.media_egress import rewrite_remote_media_tags
+
+            _egress_entry = self.session_store.get_or_create_session(event.source)
+            response = await self._run_in_executor_with_context(
+                rewrite_remote_media_tags, response, _egress_entry.session_id
+            )
+        except Exception as _egress_err:
+            logger.debug("media egress rewrite skipped: %s", _egress_err)
+
         try:
             # Capture [[as_document]] before extract_media strips it, so the
             # dispatch partition below can route image-extension files
@@ -16319,7 +16331,20 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     if has_voice_directive:
                         unique_tags.insert(0, "[[audio_as_voice]]")
                     final_response = final_response + "\n" + "\n".join(unique_tags)
-            
+
+            # Sandbox-side artifacts (remote terminal backends) must be
+            # fetched to the host before delivery's exists() checks drop
+            # them — a project-bound Modal session's figure lives on the
+            # volume, not the host FS.
+            if "MEDIA:" in final_response:
+                try:
+                    from gateway.media_egress import rewrite_remote_media_tags
+                    final_response = rewrite_remote_media_tags(
+                        final_response, session_id
+                    )
+                except Exception as _egress_err:
+                    logger.debug("media egress rewrite skipped: %s", _egress_err)
+
             # Auto-generate session title after first exchange (non-blocking)
             if final_response and self._session_db:
                 try:

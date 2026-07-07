@@ -1016,6 +1016,14 @@ DEFAULT_CONFIG = {
         "disabled_toolsets": [],
     },
     
+    "projects": {
+        # Ceiling (MiB) for fetching a remote-sandbox artifact to the host so
+        # it can be delivered to a chat (MEDIA egress for project-bound
+        # sessions on remote terminal backends). Fetches stream base64 over
+        # the exec transport, so keep this modest; larger artifacts stay on
+        # the volume and the user is told the path instead.
+        "media_fetch_max_mb": 25,
+    },
     "terminal": {
         "backend": "local",
         "modal_mode": "auto",
