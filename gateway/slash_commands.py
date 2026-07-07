@@ -3063,12 +3063,16 @@ class GatewaySlashCommandsMixin:
     # /project — bind this chat to a project
     # ------------------------------------------------------------------
 
-    def _apply_project_binding(self, entry, slug: str) -> str | None:
+    def _apply_project_binding(self, entry, slug: str, evict_agent: bool = True) -> str | None:
         """Bind (or with ``""`` unbind) *entry*'s live session in place.
 
         Persists all three binding layers — session-store entry, sessions.db
-        row, terminal cwd override — and evicts the cached agent so the next
-        turn rebuilds with the binding's prompt hint. Returns the session's
+        row, terminal cwd override — and (by default) evicts the cached agent
+        so the next turn rebuilds with the binding's prompt hint. Callers
+        running INSIDE the agent's turn (the project_bind tool) pass
+        ``evict_agent=False``: eviction soft-releases the running agent's LLM
+        client pool mid-loop, and the binding's ephemeral-prompt change flips
+        the cache signature on the next message anyway. Returns the session's
         working directory (None when unbinding or unusable).
         """
         from gateway.project_binding import (
@@ -3087,10 +3091,11 @@ class GatewaySlashCommandsMixin:
             workdir = register_session_workdir(entry.session_id, slug)
         else:
             release_session_workdir(entry.session_id)
-        try:
-            self._evict_cached_agent(entry.session_key)
-        except Exception:
-            logger.debug("agent eviction after project bind failed", exc_info=True)
+        if evict_agent:
+            try:
+                self._evict_cached_agent(entry.session_key)
+            except Exception:
+                logger.debug("agent eviction after project bind failed", exc_info=True)
         return workdir
 
     def _conversation_has_activity(self, session_id: str) -> bool:
@@ -3100,6 +3105,87 @@ class GatewaySlashCommandsMixin:
         except Exception:
             return False
         return bool(row and (row.get("message_count") or 0) > 0)
+
+    def _build_project_binding_service(self) -> dict:
+        """Callables backing the agent's ``project_bind`` tool.
+
+        A narrow closure surface (status/list/bind) over the same binding
+        helpers /project uses, so the agent and the slash command can never
+        drift. Registered with tools.project_bind_tool at gateway startup;
+        the tool's check_fn keys its visibility off that registration.
+        """
+
+        def _entry(session_key: str):
+            entry = self.session_store.get_session_by_key(session_key)
+            if entry is None:
+                raise ValueError(f"unknown session: {session_key}")
+            return entry
+
+        def _status(session_key: str) -> dict:
+            import tools.projects as _projects
+            from gateway.project_binding import session_workdir
+
+            entry = _entry(session_key)
+            if not entry.project_slug:
+                return {"bound": False}
+            project = _projects.get_project(entry.project_slug) or {}
+            return {
+                "bound": True,
+                "project": entry.project_slug,
+                "name": project.get("name") or entry.project_slug,
+                "workdir": session_workdir(entry.project_slug, entry.session_id),
+            }
+
+        def _list() -> list:
+            import tools.projects as _projects
+
+            return [
+                {"slug": p.get("slug"), "name": p.get("name")}
+                for p in _projects.list_projects()
+            ]
+
+        def _bind(session_key: str, query: str, create: bool = False) -> dict:
+            import tools.projects as _projects
+            from gateway.project_binding import session_workdir
+
+            entry = _entry(session_key)
+            if create:
+                project = _projects.create_project(query)
+            else:
+                project, candidates = _projects.resolve_project(query)
+                if project is None:
+                    if candidates:
+                        opts = ", ".join(
+                            f"{c.get('name')} ({c.get('slug')})" for c in candidates
+                        )
+                        raise ValueError(f'"{query}" is ambiguous — candidates: {opts}')
+                    raise ValueError(
+                        f'no project matches "{query}" — use action="list" to see '
+                        'projects or action="create" to create it'
+                    )
+            slug = project["slug"]
+            try:
+                self._session_db.set_chat_project_default(session_key, slug)
+            except Exception:
+                logger.debug("set_chat_project_default failed", exc_info=True)
+            # evict_agent=False: this runs INSIDE the agent's turn.
+            workdir = self._apply_project_binding(entry, slug, evict_agent=False)
+            return {
+                "bound": True,
+                "created": bool(create),
+                "project": slug,
+                "name": project.get("name") or slug,
+                "workdir": workdir
+                or session_workdir(slug, entry.session_id)
+                or "",
+                "note": (
+                    "Terminal and file tools now operate in workdir; do this "
+                    "session's work there. The chat stays bound to this "
+                    "project for future sessions."
+                ),
+            }
+
+        return {"status": _status, "list": _list, "bind": _bind}
 
     async def _handle_project_command(self, event: MessageEvent) -> str:
         """Handle /project — bind this chat to a project.

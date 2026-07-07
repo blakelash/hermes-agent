@@ -2652,6 +2652,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         import itertools as _itertools
         self._slash_confirm_counter = _itertools.count(1)
 
+        # Expose the project self-assignment surface to the agent: the
+        # project_bind tool is check_fn-gated on this registration, so its
+        # schema only ships in gateway processes.
+        try:
+            from tools.project_bind_tool import register_project_binding_service
+            register_project_binding_service(self._build_project_binding_service())
+        except Exception as _pb_err:
+            logger.debug("project_bind service registration failed: %s", _pb_err)
+
         # Persistent Honcho managers keyed by gateway session key.
         # This preserves write_frequency="session" semantics across short-lived
         # per-message AIAgent instances.

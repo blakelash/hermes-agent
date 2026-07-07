@@ -1144,6 +1144,12 @@ class SessionStore:
                     entry.last_prompt_tokens = last_prompt_tokens
                 self._save()
 
+    def get_session_by_key(self, session_key: str) -> Optional[SessionEntry]:
+        """Return the live entry for *session_key* without creating one."""
+        with self._lock:
+            self._ensure_loaded_locked()
+            return self._entries.get(session_key)
+
     def set_session_project(self, session_key: str, slug: str) -> Optional[SessionEntry]:
         """Bind (or with ``""`` unbind) the LIVE session's project in place.
 
