@@ -807,6 +807,38 @@ def _handle_create(args: dict, **kw) -> str:
                     if _self_task is not None and _self_task.workspace_kind:
                         workspace_kind = _self_task.workspace_kind
                         workspace_path = _self_task.workspace_path
+            # Project inheritance (local backend): a task created from a
+            # project-bound session works in its own subdir of that session's
+            # project dir, so kanban output lands inside the project instead
+            # of a throwaway scratch dir. Remote (Modal) sessions keep
+            # scratch for now: kanban workers run in their own sandboxes and
+            # the shared volume lacks commit/reload coordination — see the
+            # volumes follow-up. The subdir is minted here (uuid) because the
+            # task id doesn't exist until create_task below.
+            if _inherit_workspace and workspace_kind == "scratch":
+                try:
+                    from tools.terminal_tool import _task_env_overrides
+
+                    _env_is_local = (
+                        os.environ.get("TERMINAL_ENV", "local").strip().lower()
+                        or "local"
+                    ) == "local"
+                    _caller_pin = _task_env_overrides.get(str(kw.get("task_id") or "")) or {}
+                    if (
+                        _env_is_local
+                        and _caller_pin.get("pin_cwd")
+                        and _caller_pin.get("cwd")
+                    ):
+                        import uuid as _uuid
+
+                        _proj_ws = os.path.join(
+                            str(_caller_pin["cwd"]), f"kanban-{_uuid.uuid4().hex[:8]}"
+                        )
+                        os.makedirs(_proj_ws, exist_ok=True)
+                        workspace_kind = "dir"
+                        workspace_path = _proj_ws
+                except Exception:
+                    logger.debug("project workspace inheritance skipped", exc_info=True)
             new_tid = kb.create_task(
                 conn,
                 title=str(title).strip(),

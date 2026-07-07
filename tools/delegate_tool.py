@@ -1079,6 +1079,19 @@ def _build_child_agent(
         child_toolsets.append("delegation")
 
     workspace_hint = _resolve_workspace_hint(parent_agent)
+    # Project inheritance: a delegated child of a project-bound (pinned)
+    # parent works in its own subdirectory of the parent's session dir —
+    # parallel children share one sandbox, so path nesting is the isolation.
+    try:
+        from tools.terminal_tool import inherit_pinned_cwd
+
+        _inherited_workdir = inherit_pinned_cwd(
+            getattr(parent_agent, "_current_task_id", None), subagent_id
+        )
+    except Exception:
+        _inherited_workdir = None
+    if _inherited_workdir:
+        workspace_hint = _inherited_workdir
     child_prompt = _build_child_system_prompt(
         goal,
         context,
@@ -2009,6 +2022,20 @@ def _run_single_child(
         # child was never registered (e.g. ID missing on test doubles).
         if _subagent_id:
             _unregister_subagent(_subagent_id)
+            # Drop an inherited project workdir pin (never isolation
+            # overrides, which use image/env_type keys and outlive children
+            # by design in RL rollouts). Raw-keyed lookup on purpose:
+            # resolve_task_overrides falls back to the collapsed container
+            # key, which is not this child's own registration.
+            try:
+                from tools.terminal_tool import (
+                    _task_env_overrides,
+                    clear_task_env_overrides,
+                )
+                if (_task_env_overrides.get(_subagent_id) or {}).get("pin_cwd"):
+                    clear_task_env_overrides(_subagent_id)
+            except Exception:
+                pass
 
         if child_pool is not None and leased_cred_id is not None:
             try:

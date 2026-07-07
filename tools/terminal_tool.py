@@ -1007,6 +1007,39 @@ def clear_task_env_overrides(task_id: str):
     _task_env_overrides.pop(task_id, None)
 
 
+def inherit_pinned_cwd(parent_task_id: Optional[str], child_task_id: str) -> Optional[str]:
+    """Nest a child task's pinned cwd under its parent's pinned cwd.
+
+    Used by delegation: a child of a project-bound session works in its own
+    subdirectory ``<parent_pinned_cwd>/<child_task_id>`` so parallel children
+    sharing the one sandbox can't clobber each other, while the parent can
+    gather their output from directly under its session dir. No-op (None)
+    when the parent isn't pinned. The child's directory is created eagerly on
+    the local backend and lazily in-env for remote backends
+    (:func:`_ensure_pinned_cwd`).
+    """
+    if not parent_task_id or not child_task_id:
+        return None
+    parent = _task_env_overrides.get(parent_task_id) or {}
+    if not parent.get("pin_cwd"):
+        return None
+    base = str(parent.get("cwd") or "").rstrip("/\\")
+    if not base:
+        return None
+    env_type = os.getenv("TERMINAL_ENV", "local").strip().lower() or "local"
+    if env_type == "local":
+        child_cwd = os.path.join(base, child_task_id)
+        try:
+            os.makedirs(child_cwd, exist_ok=True)
+        except OSError as e:
+            logger.warning("cannot create child workdir %s: %s", child_cwd, e)
+            return None
+    else:
+        child_cwd = f"{base}/{child_task_id}"
+    register_task_env_overrides(child_task_id, {"cwd": child_cwd, "pin_cwd": True})
+    return child_cwd
+
+
 def _resolve_container_task_id(task_id: Optional[str]) -> str:
     """
     Map a tool-call ``task_id`` to the container/sandbox key used by
