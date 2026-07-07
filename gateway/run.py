@@ -8802,6 +8802,23 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 from agent.model_metadata import get_model_context_length
 
                 _msg_cwd = os.environ.get("TERMINAL_CWD", os.path.expanduser("~"))
+                # Project-bound sessions on the local backend resolve and
+                # contain @-references inside their project session dir
+                # instead of the global terminal cwd. Remote backends keep
+                # the global anchor: @-refs read HOST files, and the bound
+                # workdir is a sandbox path the host can't resolve.
+                try:
+                    from gateway.project_binding import backend_is_local, session_workdir
+
+                    if backend_is_local():
+                        _msg_entry = self.session_store.get_or_create_session(source)
+                        _msg_slug = getattr(_msg_entry, "project_slug", "") or ""
+                        if _msg_slug:
+                            _proj_dir = session_workdir(_msg_slug, _msg_entry.session_id)
+                            if _proj_dir and os.path.isdir(_proj_dir):
+                                _msg_cwd = _proj_dir
+                except Exception as _proj_ref_err:
+                    logger.debug("project @-ref anchor skipped: %s", _proj_ref_err)
                 _msg_runtime = _resolve_runtime_agent_kwargs()
                 _msg_config_ctx = None
                 try:
@@ -15359,6 +15376,45 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 combined_ephemeral = (combined_ephemeral + "\n\n" + event_channel_prompt).strip()
             if self._ephemeral_system_prompt:
                 combined_ephemeral = (combined_ephemeral + "\n\n" + self._ephemeral_system_prompt).strip()
+
+            # Project binding: pin the session's terminal/file working
+            # directory to its project dir and bake the binding into the
+            # ephemeral prompt. The ephemeral participates in the agent-cache
+            # signature, so a binding change deliberately rebuilds the agent;
+            # the CONVERSATION's system prompt stays byte-stable regardless
+            # because continuing sessions reuse the stored prompt verbatim
+            # (agent/conversation_loop). Fail-soft: a binding problem yields
+            # an unbound session, never a failed message.
+            try:
+                _proj_entry = (
+                    self.session_store.lookup_by_session_id(session_id)
+                    if session_id and getattr(self, "session_store", None)
+                    else None
+                )
+                _proj_slug = getattr(_proj_entry, "project_slug", "") or ""
+                if _proj_slug:
+                    from gateway.project_binding import (
+                        backend_is_local,
+                        project_prompt_hint,
+                        register_session_workdir,
+                    )
+
+                    _proj_workdir = register_session_workdir(session_id, _proj_slug)
+                    if _proj_workdir:
+                        _hint = project_prompt_hint(_proj_slug, session_id)
+                        if _hint:
+                            combined_ephemeral = (
+                                combined_ephemeral + "\n\n" + _hint
+                            ).strip()
+                        if backend_is_local():
+                            # Host-backed session: the logical cwd contextvar
+                            # steers prompt env hints, context-file discovery
+                            # and relative host paths for this turn's thread.
+                            from agent.runtime_cwd import set_session_cwd
+
+                            set_session_cwd(_proj_workdir)
+            except Exception as _proj_err:
+                logger.warning("project binding skipped: %s", _proj_err)
 
             max_iterations = _current_max_iterations()
 

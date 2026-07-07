@@ -978,12 +978,19 @@ def register_task_env_overrides(task_id: str, overrides: Dict[str, Any]):
     # command has run. Pushing it onto the live env keeps ``cd`` tracking intact
     # while letting an explicit ACP cwd change win, as the client expects.
     new_cwd = overrides.get("cwd")
-    if isinstance(new_cwd, str) and new_cwd.strip():
+    if isinstance(new_cwd, str) and new_cwd.strip() and not overrides.get("pin_cwd"):
         # The live env is cached under the raw task_id for per-session surfaces
         # (ACP/gateway/dashboard) and under the collapsed container id for
         # isolation-keyed rollouts. Try the raw id first, then the container id,
         # so a CWD-only override (which collapses to "default") still finds and
         # updates the originating session's env.
+        #
+        # ``pin_cwd`` overrides (project-bound gateway sessions) deliberately
+        # skip this push: many sessions share the collapsed "default" env, so
+        # mutating its single live ``env.cwd`` would leak one session's
+        # working directory into every other session sharing the sandbox.
+        # Pinned sessions resolve their cwd per-command from the raw override
+        # instead (see _resolve_command_cwd).
         container_id = _resolve_container_task_id(task_id)
         with _env_lock:
             env = _active_environments.get(task_id) or _active_environments.get(container_id)
@@ -1963,6 +1970,7 @@ def _resolve_command_cwd(
     workdir: Optional[str],
     env: Any,
     default_cwd: str,
+    pinned_cwd: Optional[str] = None,
 ) -> str:
     """Return the cwd for a command, preferring the live session cwd.
 
@@ -1971,15 +1979,55 @@ def _resolve_command_cwd(
     new directory in ``env.cwd``, but foreground/background calls kept forcing
     the old cwd back through ``env.execute(..., cwd=...)``. Explicit
     ``workdir=`` must still override everything.
+
+    ``pinned_cwd`` (project-bound gateway sessions, ``pin_cwd`` override)
+    outranks the live ``env.cwd``: those sessions share the collapsed
+    "default" environment with every other session, so its live cwd tracker
+    carries OTHER sessions' ``cd`` state and must not bleed in. Explicit
+    ``workdir=`` still wins over the pin.
     """
     if workdir:
         return workdir
+
+    if isinstance(pinned_cwd, str) and pinned_cwd.strip():
+        return pinned_cwd
 
     live_cwd = getattr(env, "cwd", None)
     if isinstance(live_cwd, str) and live_cwd.strip():
         return live_cwd
 
     return default_cwd
+
+
+# (env instance id, cwd) pairs already ensured to exist inside that live
+# environment. Keyed by id(env) so a recreated sandbox (idle-reaped and
+# rebuilt) is re-ensured — the directory may only exist on a durable volume,
+# or may never have existed if the previous ensure raced teardown.
+_pinned_cwd_ready: set = set()
+_pinned_cwd_ready_lock = threading.Lock()
+
+
+def _ensure_pinned_cwd(env: Any, pinned_cwd: str) -> None:
+    """Create a pinned working directory inside *env* once per live env.
+
+    Pinned dirs (``<volume_root>/<project>/<session>``) don't exist until a
+    bound session first touches the environment; the per-exec wrap does
+    ``cd || exit 126`` with no mkdir, so every command would fail. Fail-soft:
+    on error the subsequent command still surfaces exit 126 with a clear cwd,
+    which is a better signal than failing here.
+    """
+    key = (id(env), pinned_cwd)
+    with _pinned_cwd_ready_lock:
+        if key in _pinned_cwd_ready:
+            return
+    try:
+        import shlex as _shlex
+
+        env.execute(f"mkdir -p -- {_shlex.quote(pinned_cwd)}", cwd="/", timeout=60)
+        with _pinned_cwd_ready_lock:
+            _pinned_cwd_ready.add(key)
+    except Exception as e:
+        logger.warning("could not ensure pinned cwd %s: %s", pinned_cwd, e)
 
 
 def terminal_tool(
@@ -2067,6 +2115,9 @@ def terminal_tool(
             image = ""
 
         cwd = overrides.get("cwd") or config["cwd"]
+        # Project-bound sessions pin their working directory: it must win over
+        # the shared environment's live cwd tracker (see _resolve_command_cwd).
+        pinned_cwd = overrides.get("cwd") if overrides.get("pin_cwd") else None
         default_timeout = config["timeout"]
         effective_timeout = timeout or default_timeout
 
@@ -2299,7 +2350,10 @@ def terminal_tool(
                 workdir=workdir,
                 env=env,
                 default_cwd=cwd,
+                pinned_cwd=pinned_cwd,
             )
+            if pinned_cwd and effective_cwd == pinned_cwd and env_type != "local":
+                _ensure_pinned_cwd(env, pinned_cwd)
             try:
                 if env_type == "local":
                     proc_session = process_registry.spawn_local(
@@ -2541,13 +2595,17 @@ def terminal_tool(
             
             while retry_count <= max_retries:
                 try:
+                    _fg_cwd = _resolve_command_cwd(
+                        workdir=workdir,
+                        env=env,
+                        default_cwd=cwd,
+                        pinned_cwd=pinned_cwd,
+                    )
+                    if pinned_cwd and _fg_cwd == pinned_cwd and env_type != "local":
+                        _ensure_pinned_cwd(env, pinned_cwd)
                     execute_kwargs = {
                         "timeout": effective_timeout,
-                        "cwd": _resolve_command_cwd(
-                            workdir=workdir,
-                            env=env,
-                            default_cwd=cwd,
-                        ),
+                        "cwd": _fg_cwd,
                     }
                     result = env.execute(command, **execute_kwargs)
                 except Exception as e:
