@@ -22,6 +22,7 @@ A registry entry: ``{"slug": str, "name": str, "cwd": str (absolute)}``.
 
 from __future__ import annotations
 
+import contextlib
 import logging
 import os
 import re
@@ -34,11 +35,61 @@ from tools.environments.base import _load_json_store, _save_json_store
 logger = logging.getLogger(__name__)
 
 # Process-local serialization of read-modify-write cycles on projects.json.
-# Projects are only mutated from the gateway process, so a single in-process
-# lock is sufficient (no cross-process file lock needed).
+# Mutations additionally take the cross-process lockfile below: the registry
+# is written by BOTH the messaging gateway (/project new) and the desktop
+# backend (dashboard create/rename), which are separate processes.
 _lock = threading.RLock()
 
 _SLUG_RE = re.compile(r"[^a-z0-9]+")
+
+# Default in-sandbox root for project work on the persistent Modal Volume.
+# The actual root comes from the configured volume mount (terminal.modal_volumes
+# mount_path); this constant is only the conventional fallback.
+DEFAULT_VOLUME_ROOT = "/work"
+
+_LOCK_WAIT_SECONDS = 10.0   # how long to wait on another process's mutation
+_LOCK_STALE_SECONDS = 30.0  # a lockfile older than this is from a dead process
+
+
+@contextlib.contextmanager
+def _mutation_lock():
+    """Cross-process + in-process serialization for registry mutations.
+
+    A sibling ``projects.json.lock`` is claimed with O_CREAT|O_EXCL (atomic on
+    every platform we support, including Windows). Stale locks from crashed
+    processes are reclaimed by age. Fail-soft: if the lock cannot be acquired
+    within the wait window we proceed anyway (a lost concurrent rename is far
+    better than a wedged gateway) — the in-process RLock still holds.
+    """
+    lock_path = _projects_file().with_suffix(".json.lock")
+    with _lock:
+        fd = None
+        deadline = time.monotonic() + _LOCK_WAIT_SECONDS
+        while fd is None:
+            try:
+                lock_path.parent.mkdir(parents=True, exist_ok=True)
+                fd = os.open(str(lock_path), os.O_CREAT | os.O_EXCL | os.O_WRONLY)
+            except FileExistsError:
+                try:
+                    if time.time() - lock_path.stat().st_mtime > _LOCK_STALE_SECONDS:
+                        lock_path.unlink(missing_ok=True)
+                        continue
+                except OSError:
+                    pass
+                if time.monotonic() >= deadline:
+                    logger.warning(
+                        "projects.json lock held past %.0fs; proceeding without it",
+                        _LOCK_WAIT_SECONDS,
+                    )
+                    break
+                time.sleep(0.05)
+        try:
+            yield
+        finally:
+            if fd is not None:
+                os.close(fd)
+                with contextlib.suppress(OSError):
+                    lock_path.unlink()
 
 
 def _projects_file():
@@ -110,7 +161,7 @@ def create_project(name: str) -> dict:
     name = (name or "").strip()
     if not name:
         raise ValueError("project name is required")
-    with _lock:
+    with _mutation_lock():
         projects = _read()
         existing = {str(p.get("slug", "")) for p in projects}
         slug = _unique_slug(_slugify(name), existing)
@@ -130,7 +181,7 @@ def rename_project(slug: str, name: str) -> dict:
     name = (name or "").strip()
     if not name:
         raise ValueError("project name is required")
-    with _lock:
+    with _mutation_lock():
         projects = _read()
         for p in projects:
             if p.get("slug") == slug:
@@ -171,3 +222,75 @@ def project_for_cwd(path: str, projects: list[dict] | None = None) -> dict | Non
             if len(root) > best_len:
                 best, best_len = dict(p), len(root)
     return best
+
+
+def project_work_path(
+    slug: str,
+    session_id: str = "",
+    child_id: str = "",
+    volume_root: str = DEFAULT_VOLUME_ROOT,
+) -> str:
+    """In-sandbox working path for project work on the persistent volume.
+
+    Convention: ``<volume_root>/<slug>[/<session_id>[/<child_id>]]``. Sessions
+    bound to a project work in their own subdirectory; delegated children
+    (subagents, kanban tasks) nest one level deeper under their parent session.
+    Isolation here is BY PATH, not by sandbox — concurrent sessions and
+    subagents share one sandbox, so this convention is what keeps their work
+    apart. Always POSIX-joined: the path lives inside the sandbox regardless
+    of the host platform.
+
+    Raises ValueError on an empty slug or when *child_id* is given without a
+    *session_id* (a child's dir is meaningless outside its parent's).
+    """
+    slug = (slug or "").strip().strip("/")
+    if not slug:
+        raise ValueError("project slug is required")
+    if child_id and not session_id:
+        raise ValueError("child_id requires a session_id")
+    root = "/" + (volume_root or DEFAULT_VOLUME_ROOT).strip("/")
+    parts = [root, slug]
+    if session_id:
+        parts.append(str(session_id).strip("/"))
+    if child_id:
+        parts.append(str(child_id).strip("/"))
+    return "/".join(parts)
+
+
+def resolve_project(
+    query: str, projects: list[dict] | None = None
+) -> tuple[dict | None, list[dict]]:
+    """Resolve a user-supplied name/slug to a project, forgivingly.
+
+    Precedence: exact slug → case-insensitive exact name → unique
+    case-insensitive prefix of a slug or name. Returns ``(project, candidates)``:
+    exactly one of the two is meaningful — a match with ``[]``, or ``None``
+    with the (possibly empty) list of ambiguous candidates so callers can
+    show "did you mean …". An empty *query* resolves to nothing.
+    """
+    query = (query or "").strip()
+    if not query:
+        return None, []
+    if projects is None:
+        projects = list_projects()
+
+    for p in projects:
+        if p.get("slug") == query:
+            return dict(p), []
+
+    lowered = query.lower()
+    name_hits = [p for p in projects if str(p.get("name", "")).lower() == lowered]
+    if len(name_hits) == 1:
+        return dict(name_hits[0]), []
+    if name_hits:
+        return None, [dict(p) for p in name_hits]
+
+    prefix_hits = [
+        p
+        for p in projects
+        if str(p.get("slug", "")).startswith(lowered)
+        or str(p.get("name", "")).lower().startswith(lowered)
+    ]
+    if len(prefix_hits) == 1:
+        return dict(prefix_hits[0]), []
+    return None, [dict(p) for p in prefix_hits]
