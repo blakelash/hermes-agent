@@ -55,6 +55,17 @@ def _enqueue(session_key: str, data: dict):
     return entry
 
 
+@pytest.fixture()
+def rpc_db(tmp_path, monkeypatch):
+    """Real SessionDB wired into the server's _get_db()."""
+    from hermes_state import SessionDB
+
+    db = SessionDB(tmp_path / "state.db")
+    monkeypatch.setattr(srv, "_get_db", lambda: db)
+    yield db
+    db.close()
+
+
 # ---------------------------------------------------------------------------
 # projects.{list,create,rename}
 # ---------------------------------------------------------------------------
@@ -276,3 +287,95 @@ def test_global_cost_from_session_db(clean_sessions, monkeypatch):
     res = _call("dashboard.snapshot", {})["result"]
     assert res["cost"]["cost_usd"] == 2.5
     assert res["cost"]["total"] == 140 and res["cost"]["calls"] == 7
+
+
+# ---------------------------------------------------------------------------
+# session.list — explicit project column wins over cwd derivation
+# ---------------------------------------------------------------------------
+
+
+def test_session_list_prefers_explicit_project_column(clean_sessions, rpc_db):
+    projects.create_project("Demo")
+    # Messaging session: off-host work → no meaningful cwd, explicit column.
+    rpc_db.create_session("tg1", "telegram", project="demo")
+    # TUI session: cwd under the project root, no explicit column.
+    demo_root = projects.get_project("demo")["cwd"]
+    rpc_db.create_session("tui1", "tui", cwd=os.path.join(demo_root, "tui1"))
+    # Unbound session.
+    rpc_db.create_session("plain1", "cli")
+
+    rows = {s["id"]: s for s in _call("session.list", {})["result"]["sessions"]}
+    assert rows["tg1"]["project"] == "demo"
+    assert rows["tui1"]["project"] == "demo"
+    assert rows["plain1"]["project"] == ""
+
+
+def test_session_list_explicit_beats_conflicting_cwd(clean_sessions, rpc_db):
+    projects.create_project("Alpha")
+    projects.create_project("Beta")
+    alpha_root = projects.get_project("alpha")["cwd"]
+    # cwd says alpha, explicit column says beta — explicit wins (retagged row).
+    rpc_db.create_session(
+        "s1", "telegram", project="beta", cwd=os.path.join(alpha_root, "s1")
+    )
+    rows = {s["id"]: s for s in _call("session.list", {})["result"]["sessions"]}
+    assert rows["s1"]["project"] == "beta"
+
+
+# ---------------------------------------------------------------------------
+# session.project.set — drag-to-reassign for messaging/history rows
+# ---------------------------------------------------------------------------
+
+
+def test_project_set_retags_row_and_pins_chat(clean_sessions, rpc_db):
+    projects.create_project("Demo")
+    rpc_db.create_session(
+        "tg1", "telegram", gateway_session_key="telegram:12:34"
+    )
+
+    res = _call("session.project.set", {"session_id": "tg1", "project": "demo"})["result"]
+
+    assert res == {"project": "demo", "chat_default_updated": True}
+    assert rpc_db.get_session("tg1")["project"] == "demo"
+    assert rpc_db.get_chat_project_default("telegram:12:34") == "demo"
+    # Grouping is immediately visible in the list feed.
+    rows = {s["id"]: s for s in _call("session.list", {})["result"]["sessions"]}
+    assert rows["tg1"]["project"] == "demo"
+
+
+def test_project_set_clear_unpins(clean_sessions, rpc_db):
+    projects.create_project("Demo")
+    rpc_db.create_session("tg1", "telegram", project="demo",
+                          gateway_session_key="telegram:12:34")
+    rpc_db.set_chat_project_default("telegram:12:34", "demo")
+
+    res = _call("session.project.set", {"session_id": "tg1", "project": ""})["result"]
+
+    assert res["project"] == "" and res["chat_default_updated"] is True
+    assert rpc_db.get_session("tg1")["project"] is None
+    assert rpc_db.get_chat_project_default("telegram:12:34") is None
+
+
+def test_project_set_row_without_chat_key_retags_only(clean_sessions, rpc_db):
+    """Pre-existing rows lack gateway_session_key: retag works, no pin."""
+    projects.create_project("Demo")
+    rpc_db.create_session("old1", "telegram")
+
+    res = _call("session.project.set", {"session_id": "old1", "project": "demo"})["result"]
+
+    assert res == {"project": "demo", "chat_default_updated": False}
+    assert rpc_db.get_session("old1")["project"] == "demo"
+
+
+def test_project_set_rejects_unknowns(clean_sessions, rpc_db):
+    projects.create_project("Demo")
+    rpc_db.create_session("tg1", "telegram")
+
+    err = _call("session.project.set", {"session_id": "tg1", "project": "ghost"})["error"]
+    assert err["code"] == 4018
+
+    err = _call("session.project.set", {"session_id": "nope", "project": "demo"})["error"]
+    assert err["code"] == 4018
+
+    err = _call("session.project.set", {"project": "demo"})["error"]
+    assert err["code"] == 4016

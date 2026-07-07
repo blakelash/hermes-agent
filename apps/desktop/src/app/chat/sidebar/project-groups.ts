@@ -51,6 +51,22 @@ export function projectSlugForCwd(cwd: string, projects: Project[]): string {
 }
 
 /**
+ * A session's project slug: the EXPLICIT `project` field wins (messaging
+ * sessions whose work lives off-host — Modal volume — carry it from the
+ * backend's `sessions.project` column), falling back to cwd-prefix matching
+ * for sessions that only know their directory.
+ */
+export function projectSlugForSession(session: SessionInfo, projects: Project[]): string {
+  const explicit = session.project?.trim() || ''
+
+  if (explicit) {
+    return explicit
+  }
+
+  return projectSlugForCwd(session.cwd?.trim() || '', projects)
+}
+
+/**
  * Group sessions under their project, reusing `workspaceGroupsFor`'s
  * {@link SidebarSessionGroup} shape so the existing row / virtual-list rendering
  * is reused unchanged.
@@ -60,6 +76,10 @@ export function projectSlugForCwd(cwd: string, projects: Project[]): string {
  * for drag-to-reassign. Projects keep registry order; sessions matching no
  * project fall into a single "Unassigned" group appended last. Rows within a
  * group sort newest-first (stable muscle memory), matching `workspaceGroupsFor`.
+ *
+ * Membership prefers a session's explicit `project` tag over cwd derivation
+ * ({@link projectSlugForSession}) — an explicitly bound session whose slug is
+ * not (yet) in the registry falls into "Unassigned" rather than vanishing.
  */
 export function projectGroupsFor(
   sessions: SessionInfo[],
@@ -83,7 +103,7 @@ export function projectGroupsFor(
   const unassigned: SessionInfo[] = []
 
   for (const session of sessions) {
-    const slug = projectSlugForCwd(session.cwd?.trim() || '', projects)
+    const slug = projectSlugForSession(session, projects)
     const group = slug ? groups.get(slug) : undefined
 
     if (group) {

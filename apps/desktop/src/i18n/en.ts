@@ -1240,6 +1240,13 @@ export const en: Translations = {
       renameFailed: 'Rename failed',
       renameTitle: 'Rename session',
       renameDesc: 'Give this chat a memorable title. Leave empty to clear.',
+      moveToProject: 'Move to project',
+      moveToProjectDesc:
+        "Group this session under a project. For messaging chats, the chat's next sessions start in that project too.",
+      moveToProjectNone: 'No project',
+      moveToProjectFailed: 'Could not move session',
+      movedToProject: name => `Moved to ${name}`,
+      removedFromProject: 'Removed from project',
       untitledPlaceholder: 'Untitled session',
       ageNow: 'now',
       ageDay: 'd',
