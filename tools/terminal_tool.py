@@ -829,6 +829,7 @@ from tools.environments.ssh import SSHEnvironment as _SSHEnvironment
 from tools.environments.docker import DockerEnvironment as _DockerEnvironment
 from tools.environments.modal import ModalEnvironment as _ModalEnvironment
 from tools.environments.managed_modal import ManagedModalEnvironment as _ManagedModalEnvironment
+from tools.environments.modal_volumes import normalize_modal_volumes
 from tools.managed_tool_gateway import is_managed_tool_gateway_ready
 import sys
 
@@ -1120,6 +1121,14 @@ def _get_env_config() -> Dict[str, Any]:
         docker_env = {}
         docker_extra_args = []
 
+    # Modal Volumes: persistent storage mounted into the sandbox (durable
+    # scientific work). Parsed for any container backend; only consumed by the
+    # modal backend. Lenient parser tolerates bad config without breaking local.
+    if container_backend:
+        modal_volumes = normalize_modal_volumes(os.getenv("TERMINAL_MODAL_VOLUMES", ""))
+    else:
+        modal_volumes = []
+
     # Default cwd: local uses the host's current directory, ssh uses the
     # remote home, and everything else starts in the backend's default
     # root-like cwd.
@@ -1191,6 +1200,7 @@ def _get_env_config() -> Dict[str, Any]:
         "container_disk": container_disk,        # MB (default 50GB)
         "container_persistent": os.getenv("TERMINAL_CONTAINER_PERSISTENT", "true").lower() in {"true", "1", "yes"},
         "docker_volumes": docker_volumes,
+        "modal_volumes": modal_volumes,
         "docker_env": docker_env,
         "docker_run_as_host_user": os.getenv("TERMINAL_DOCKER_RUN_AS_HOST_USER", "false").lower() in {"true", "1", "yes"},
         "docker_extra_args": docker_extra_args,
@@ -1250,6 +1260,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
     disk = cc.get("container_disk", 51200)
     persistent = cc.get("container_persistent", True)
     volumes = cc.get("docker_volumes", [])
+    modal_volumes = cc.get("modal_volumes", [])
     docker_forward_env = cc.get("docker_forward_env", [])
     docker_env = cc.get("docker_env", {})
     docker_extra_args = cc.get("docker_extra_args", [])
@@ -1307,6 +1318,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
                 image=image, cwd=cwd, timeout=timeout,
                 modal_sandbox_kwargs=sandbox_kwargs,
                 persistent_filesystem=persistent, task_id=task_id,
+                modal_volumes=modal_volumes,
             )
 
         if modal_state["selected_backend"] != "direct":
@@ -1342,6 +1354,7 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
             image=image, cwd=cwd, timeout=timeout,
             modal_sandbox_kwargs=sandbox_kwargs,
             persistent_filesystem=persistent, task_id=task_id,
+            modal_volumes=modal_volumes,
         )
     
     elif env_type == "daytona":
@@ -2018,6 +2031,7 @@ def terminal_tool(
                                 "container_persistent": config.get("container_persistent", True),
                                 "modal_mode": config.get("modal_mode", "auto"),
                                 "docker_volumes": config.get("docker_volumes", []),
+                                "modal_volumes": config.get("modal_volumes", []),
                                 "docker_mount_cwd_to_workspace": config.get("docker_mount_cwd_to_workspace", False),
                                 "docker_forward_env": config.get("docker_forward_env", []),
                                 "docker_env": config.get("docker_env", {}),

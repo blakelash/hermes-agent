@@ -1088,6 +1088,11 @@ DEFAULT_CONFIG = {
         # For gateway MEDIA delivery, write inside Docker to /output/... and emit
         # the host-visible path in MEDIA:, not the container path.
         "docker_volumes": [],
+        # Persistent Modal Volumes mounted into the sandbox (durable scientific
+        # work; survive teardown, shared across sandboxes/tasks). Each entry:
+        # {"name": "hermes-science", "mount_path": "/work",
+        #  "create_if_missing": true, "read_only": false}
+        "modal_volumes": [],
         # Explicit opt-in: mount the host cwd into /workspace for Docker sessions.
         # Default off because passing host directories into a sandbox weakens isolation.
         "docker_mount_cwd_to_workspace": False,
@@ -5745,6 +5750,7 @@ TERMINAL_CONFIG_ENV_MAP = {
     "container_disk": "TERMINAL_CONTAINER_DISK",
     "container_persistent": "TERMINAL_CONTAINER_PERSISTENT",
     "docker_volumes": "TERMINAL_DOCKER_VOLUMES",
+    "modal_volumes": "TERMINAL_MODAL_VOLUMES",
     "docker_env": "TERMINAL_DOCKER_ENV",
     "docker_mount_cwd_to_workspace": "TERMINAL_DOCKER_MOUNT_CWD_TO_WORKSPACE",
     "docker_extra_args": "TERMINAL_DOCKER_EXTRA_ARGS",

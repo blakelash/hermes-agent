@@ -261,11 +261,13 @@ class TestEnsurepipFix:
             "ModalEnvironment should not depend on swe-rex; "
             "use Modal SDK directly via Sandbox.create() + exec()"
         )
-        assert "Sandbox.create.aio" in source, (
-            "ModalEnvironment should use async Modal Sandbox.create.aio()"
+        # modal>=1.3 uses the blocking SDK surface (synchronicity), not .aio()
+        # coroutines, driven from loop-free worker threads.
+        assert "Sandbox.create(" in source, (
+            "ModalEnvironment should use the blocking Modal Sandbox.create()"
         )
-        assert "exec.aio" in source, (
-            "ModalEnvironment should use Sandbox.exec.aio() for command execution"
+        assert ".exec(" in source, (
+            "ModalEnvironment should use Sandbox.exec() for command execution"
         )
 
 
