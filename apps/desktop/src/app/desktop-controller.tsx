@@ -60,8 +60,8 @@ import {
   $gatewayState,
   $messages,
   $messagingSessions,
-  $resumeFailedSessionId,
   $resumeExhaustedSessionId,
+  $resumeFailedSessionId,
   $selectedStoredSessionId,
   $sessions,
   $workingSessionIds,
@@ -101,6 +101,7 @@ import {
   PREVIEW_RAIL_PANE_WIDTH
 } from './chat/right-rail'
 import { ChatSidebar } from './chat/sidebar'
+import { useProjectsSync } from './chat/use-projects-sync'
 import { CommandPalette } from './command-palette'
 import { useGatewayBoot } from './gateway/hooks/use-gateway-boot'
 import { useGatewayRequest } from './gateway/hooks/use-gateway-request'
@@ -138,6 +139,8 @@ const AgentsView = lazy(async () => ({ default: (await import('./agents')).Agent
 const ArtifactsView = lazy(async () => ({ default: (await import('./artifacts')).ArtifactsView }))
 const CommandCenterView = lazy(async () => ({ default: (await import('./command-center')).CommandCenterView }))
 const CronView = lazy(async () => ({ default: (await import('./cron')).CronView }))
+const DashboardView = lazy(async () => ({ default: (await import('./dashboard')).DashboardView }))
+const WorkspaceView = lazy(async () => ({ default: (await import('./workspace')).WorkspaceView }))
 const MessagingView = lazy(async () => ({ default: (await import('./messaging')).MessagingView }))
 const ProfilesView = lazy(async () => ({ default: (await import('./profiles')).ProfilesView }))
 const SettingsView = lazy(async () => ({ default: (await import('./settings')).SettingsView }))
@@ -235,11 +238,14 @@ export function DesktopController() {
     commandCenterOpen,
     cronOpen,
     currentView,
+    dashboardOpen,
     openAgents,
     openCommandCenterSection,
+    openWorkspace,
     profilesOpen,
     settingsOpen,
-    toggleCommandCenter
+    toggleCommandCenter,
+    workspaceOpen
   } = useOverlayRouting()
 
   const terminalSidebarOpen = chatOpen && terminalTakeover
@@ -267,6 +273,10 @@ export function DesktopController() {
   })
 
   const { connectionRef, gatewayRef, requestGateway } = useGatewayRequest()
+
+  // Seed $projects in the chat context so the sidebar can group sessions by
+  // project without the Dashboard being open. Re-runs when the gateway opens.
+  useProjectsSync(gatewayState === 'open' ? (gatewayRef.current ?? null) : null, requestGateway)
 
   useEffect(() => {
     window.hermesDesktop?.setPreviewShortcutActive?.(Boolean(chatOpen && (filePreviewTarget || previewTarget)))
@@ -1083,6 +1093,27 @@ export function DesktopController() {
           <ProfilesView onClose={closeOverlayToPreviousRoute} />
         </Suspense>
       )}
+
+      {dashboardOpen && (
+        <Suspense fallback={null}>
+          <DashboardView
+            gateway={gatewayRef.current}
+            onClose={closeOverlayToPreviousRoute}
+            onOpenWorkspace={openWorkspace}
+            requestGateway={requestGateway}
+          />
+        </Suspense>
+      )}
+
+      {workspaceOpen && (
+        <Suspense fallback={null}>
+          <WorkspaceView
+            gateway={gatewayRef.current}
+            onClose={closeOverlayToPreviousRoute}
+            requestGateway={requestGateway}
+          />
+        </Suspense>
+      )}
     </>
   )
 
@@ -1243,6 +1274,8 @@ export function DesktopController() {
           <Route element={null} path="settings" />
           <Route element={null} path="command-center" />
           <Route element={null} path="agents" />
+          <Route element={null} path="dashboard" />
+          <Route element={null} path="workspace" />
           <Route element={<Navigate replace to={NEW_CHAT_ROUTE} />} path="new" />
           <Route element={<LegacySessionRedirect />} path="sessions/:sessionId" />
           <Route element={<Navigate replace to={NEW_CHAT_ROUTE} />} path="*" />

@@ -21,6 +21,7 @@ import { isSecondaryWindow } from '@/store/windows'
 
 import { SIDEBAR_COLLAPSE_MEDIA_QUERY } from '../layout-constants'
 
+import { AppTabs } from './app-tabs'
 import { KeybindPanel } from './keybind-panel'
 import { StatusbarControls, type StatusbarItem } from './statusbar-controls'
 import { TITLEBAR_HEIGHT, titlebarControlsPosition } from './titlebar'
@@ -196,6 +197,13 @@ export function AppShell({
       </main>
 
       {overlays}
+
+      {/* Top-level Chat | Dashboard | Workspace switcher — centered in the
+          titlebar. Rendered AFTER <main> + overlays so its `no-drag` wins over
+          the center titlebar drag region (Electron resolves the later element),
+          otherwise clicks on the centered tabs become window-drags. z-80 keeps
+          it above the chat title bar and the full-bleed Dashboard/Workspace. */}
+      {!hideTitlebarControls && <AppTabs />}
 
       {/* Keybind map dialog (titlebar ⌨ button / ⌘/). */}
       <KeybindPanel />

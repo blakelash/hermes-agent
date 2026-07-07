@@ -8,6 +8,8 @@ export const ARTIFACTS_ROUTE = '/artifacts'
 export const CRON_ROUTE = '/cron'
 export const PROFILES_ROUTE = '/profiles'
 export const AGENTS_ROUTE = '/agents'
+export const DASHBOARD_ROUTE = '/dashboard'
+export const WORKSPACE_ROUTE = '/workspace'
 
 export type AppView =
   | 'agents'
@@ -15,21 +17,25 @@ export type AppView =
   | 'chat'
   | 'command-center'
   | 'cron'
+  | 'dashboard'
   | 'messaging'
   | 'profiles'
   | 'settings'
   | 'skills'
+  | 'workspace'
 
 export type AppRouteId =
   | 'agents'
   | 'artifacts'
   | 'command-center'
   | 'cron'
+  | 'dashboard'
   | 'messaging'
   | 'new'
   | 'profiles'
   | 'settings'
   | 'skills'
+  | 'workspace'
 
 export interface AppRoute {
   id: AppRouteId
@@ -46,7 +52,9 @@ export const APP_ROUTES = [
   { id: 'artifacts', path: ARTIFACTS_ROUTE, view: 'artifacts' },
   { id: 'cron', path: CRON_ROUTE, view: 'cron' },
   { id: 'profiles', path: PROFILES_ROUTE, view: 'profiles' },
-  { id: 'agents', path: AGENTS_ROUTE, view: 'agents' }
+  { id: 'agents', path: AGENTS_ROUTE, view: 'agents' },
+  { id: 'dashboard', path: DASHBOARD_ROUTE, view: 'dashboard' },
+  { id: 'workspace', path: WORKSPACE_ROUTE, view: 'workspace' }
 ] as const satisfies readonly AppRoute[]
 
 const APP_VIEW_BY_PATH = new Map<string, AppView>(APP_ROUTES.map(route => [route.path, route.view]))
@@ -55,7 +63,15 @@ const RESERVED_PATHS: ReadonlySet<string> = new Set(APP_ROUTES.map(route => rout
 // Views that render as a full-screen modal card (OverlayView) over the shell.
 // While one is open the app's titlebar control clusters must hide so they don't
 // bleed over the overlay (they sit at a higher z-index than the overlay card).
-export const OVERLAY_VIEWS: ReadonlySet<AppView> = new Set(['agents', 'command-center', 'cron', 'profiles', 'settings'])
+export const OVERLAY_VIEWS: ReadonlySet<AppView> = new Set([
+  'agents',
+  'command-center',
+  'cron',
+  'dashboard',
+  'profiles',
+  'settings',
+  'workspace'
+])
 
 export function isOverlayView(view: AppView): boolean {
   return OVERLAY_VIEWS.has(view)
