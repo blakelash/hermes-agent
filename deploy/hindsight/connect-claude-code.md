@@ -83,6 +83,58 @@ Claude Code is recallable by the Hermes brain next session, and vice versa.
 - Added at **user scope** (`~/.claude.json`), NOT into this repo's `.mcp.json` — this is
   personal infra pointing at a private host; it must not be committed.
 
+## Troubleshooting: unreachable behind a corporate VPN (GlobalProtect / AnyConnect)
+
+**Symptom:** Claude Code shows `hindsight-hermes` failing with `FailedToOpenSocket` or
+`ConnectionRefused` at `http://hindsight-mem.internal:8888/mcp/hermes/`, even though the
+WireGuard tunnel is toggled ON and the Fly machine is healthy.
+
+**Cause:** A corporate full-tunnel VPN (Palo Alto GlobalProtect, Cisco AnyConnect) installs
+a `default` (::/0) IPv6 route that ties with — and beats — the one WireGuard installs, so
+packets to Fly's `fdaa:` 6PN are blackholed. Leftover `default → fe80::%utunN` routes from
+the VPN's tunnel interfaces can poison IPv6 route selection even after the VPN disconnects.
+
+**Diagnose** (tunnel must be ON):
+
+```sh
+# Which interface holds the Fly 6PN address (this is the WireGuard tunnel):
+ifconfig | awk '/^utun/{i=$1} /inet6 fdaa/{print i, $2}'
+# Where does traffic to the machine actually go? If this is NOT the utun above, the VPN is winning:
+route -n get -inet6 fdaa:88:fecd:a7b:1b7:98b9:9d9d:2 | grep interface
+# Reachability straight to the machine over the tunnel:
+curl -6 -sS --max-time 8 http://hindsight-mem.internal:8888/health   # want: {"status":"healthy",...}
+```
+
+**Fix (one-shot):** pin a more-specific /48 route to the WireGuard interface — /48 beats the
+VPN's default, so both coexist:
+
+```sh
+sudo sh deploy/hindsight/fly-route-guard.sh   # auto-detects the current utun; idempotent
+```
+
+**Fix (permanent — recommended if you keep the VPN on all day):** install the route guard as
+a root LaunchDaemon. It re-asserts the /48 within ~15s of a reboot, VPN reconnect, or
+WireGuard interface renumber, so Hindsight stays reachable without babysitting.
+
+```sh
+sudo cp deploy/hindsight/fly-route-guard.sh /usr/local/bin/fly-route-guard.sh
+sudo chmod 755 /usr/local/bin/fly-route-guard.sh
+sudo cp deploy/hindsight/com.hermes.fly-route-guard.plist /Library/LaunchDaemons/
+sudo chown root:wheel /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+sudo chmod 644 /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+sudo launchctl bootstrap system /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+# verify it's running + watch it work:
+sudo launchctl print system/com.hermes.fly-route-guard | grep -E 'state|pid'
+tail -f /var/log/fly-route-guard.log
+```
+
+Uninstall: `sudo launchctl bootout system /Library/LaunchDaemons/com.hermes.fly-route-guard.plist`
+then remove the two files.
+
+> The route guard only pins the route; the WireGuard tunnel itself must still be ON (it does
+> nothing when no `fdaa:` interface exists). It never touches non-Fly traffic, so your
+> corporate VPN is unaffected.
+
 ## What this is (and isn't) yet
 
 - This is the **explicit read/write/search** layer (the agent calls `recall`/`retain`

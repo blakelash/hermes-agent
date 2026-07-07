@@ -41,13 +41,23 @@ primary_region = "iad"
   size = "shared-cpu-1x"
   memory = "2gb"   # full image loads local BGE embedder + MiniLM reranker; 1.5GB min, 2GB recommended
 
-# Machine-level health check against the real /version endpoint (private port).
-# Generous grace: first boot does PG initdb + loads embedding/reranker models.
-[checks]
-  [checks.health]
-    type = "http"
-    port = 8888
-    path = "/health"
-    interval = "30s"
-    timeout = "5s"
-    grace_period = "300s"
+# NO machine-level [checks] block — intentionally.
+#
+# The API binds IPv6-only: it listens on [::]:8888 with IPV6_V6ONLY set on the
+# socket (required so it's reachable on the v6-only 6PN; see HINDSIGHT_API_HOST
+# above). Fly's machine health checks connect over IPv4 loopback (127.0.0.1),
+# which a v6-only listener refuses — so ANY [checks] http/tcp probe here is
+# permanently "critical: connection refused" even while the server is perfectly
+# healthy. That false-critical state is not cosmetic: it can hang/roll back a
+# `fly deploy` that waits on checks.
+#
+# Boot health is already gated INSIDE the container: start-all.sh polls
+# HINDSIGHT_API_HEALTH_URL (http://[::1]:8888/health) and refuses to come up until
+# the API is serving. That's the health signal that actually works against a
+# v6-only server, so an external Fly check is redundant as well as broken.
+#
+# To restore ACTIVE external monitoring you'd need a v4 listener in the guest
+# (e.g. a tiny python3 127.0.0.1:8888 -> [::1]:8888 forwarder). That requires an
+# entrypoint override, which risks start-all.sh's careful pid1/SIGTERM handling on
+# this stateful (embedded-Postgres) service — not worth it for a private,
+# single-machine app. Revisit only if the upstream image gains a dual-stack bind.

@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  LaunchDaemon that keeps the Fly 6PN /48 route pinned to the active WireGuard
+  interface (see fly-route-guard.sh). Runs as root at load and every 15s, so the
+  route is re-asserted within seconds of a reboot, VPN reconnect, or WireGuard
+  interface renumber.
+
+  Install:
+    sudo cp deploy/hindsight/fly-route-guard.sh /usr/local/bin/fly-route-guard.sh
+    sudo chmod 755 /usr/local/bin/fly-route-guard.sh
+    sudo cp deploy/hindsight/com.hermes.fly-route-guard.plist /Library/LaunchDaemons/
+    sudo chown root:wheel /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+    sudo chmod 644 /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+    sudo launchctl bootstrap system /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+
+  Uninstall:
+    sudo launchctl bootout system /Library/LaunchDaemons/com.hermes.fly-route-guard.plist
+    sudo rm /Library/LaunchDaemons/com.hermes.fly-route-guard.plist /usr/local/bin/fly-route-guard.sh
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.hermes.fly-route-guard</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/sh</string>
+        <string>/usr/local/bin/fly-route-guard.sh</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StartInterval</key>
+    <integer>15</integer>
+
+    <key>StandardOutPath</key>
+    <string>/var/log/fly-route-guard.log</string>
+
+    <key>StandardErrorPath</key>
+    <string>/var/log/fly-route-guard.log</string>
+</dict>
+</plist>
