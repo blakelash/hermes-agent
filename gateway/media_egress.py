@@ -8,7 +8,7 @@ environment (base64 over the existing exec transport — no new bridge), written
 under ``HERMES_HOME/cache/media_egress/``, and the tag is pointed at the host
 copy. Local backends and host-visible paths pass through untouched.
 
-Size-capped by ``projects.media_fetch_max_mb`` (config.yaml): oversized
+Size-capped by ``terminal.media_fetch_max_mb`` (config.yaml): oversized
 artifacts stay on the volume and the tag is left as-is, which surfaces the
 usual "file not found" warning naming the in-sandbox path.
 
@@ -75,7 +75,7 @@ def _max_fetch_bytes() -> int:
         from gateway.run import _load_gateway_config
         from hermes_cli.config import cfg_get
 
-        mb = cfg_get(_load_gateway_config(), "projects", "media_fetch_max_mb", default=25)
+        mb = cfg_get(_load_gateway_config(), "terminal", "media_fetch_max_mb", default=25)
         mb = float(mb)
     except Exception:
         mb = 25.0
@@ -116,7 +116,7 @@ def fetch_remote_file(path: str, task_id: str) -> str | None:
         cap = _max_fetch_bytes()
         if size > cap:
             logger.warning(
-                "media egress: %s is %.1f MiB, over projects.media_fetch_max_mb — "
+                "media egress: %s is %.1f MiB, over terminal.media_fetch_max_mb — "
                 "leaving it on the volume",
                 path, size / (1024 * 1024),
             )
