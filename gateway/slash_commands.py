@@ -3059,6 +3059,180 @@ class GatewaySlashCommandsMixin:
             else:
                 return t("gateway.title.current_no_title", session_id=session_id)
 
+    # ------------------------------------------------------------------
+    # /project — bind this chat to a project
+    # ------------------------------------------------------------------
+
+    def _apply_project_binding(self, entry, slug: str) -> str | None:
+        """Bind (or with ``""`` unbind) *entry*'s live session in place.
+
+        Persists all three binding layers — session-store entry, sessions.db
+        row, terminal cwd override — and evicts the cached agent so the next
+        turn rebuilds with the binding's prompt hint. Returns the session's
+        working directory (None when unbinding or unusable).
+        """
+        from gateway.project_binding import (
+            register_session_workdir,
+            release_session_workdir,
+        )
+
+        self.session_store.set_session_project(entry.session_key, slug)
+        entry.project_slug = (slug or "").strip()
+        try:
+            self._session_db.update_session_project(entry.session_id, slug)
+        except Exception:
+            logger.debug("update_session_project failed", exc_info=True)
+        workdir = None
+        if slug:
+            workdir = register_session_workdir(entry.session_id, slug)
+        else:
+            release_session_workdir(entry.session_id)
+        try:
+            self._evict_cached_agent(entry.session_key)
+        except Exception:
+            logger.debug("agent eviction after project bind failed", exc_info=True)
+        return workdir
+
+    def _conversation_has_activity(self, session_id: str) -> bool:
+        """True when the session already holds conversation turns."""
+        try:
+            row = self._session_db.get_session(session_id)
+        except Exception:
+            return False
+        return bool(row and (row.get("message_count") or 0) > 0)
+
+    async def _handle_project_command(self, event: MessageEvent) -> str:
+        """Handle /project — bind this chat to a project.
+
+        ``set``/``new`` pin the chat's sticky default (every future session
+        in this chat auto-binds) and apply it: in place when the current
+        conversation is still empty, otherwise by starting a fresh session so
+        the frozen system prompt is never mutated mid-conversation. ``clear``
+        is the symmetric unbind.
+        """
+        import tools.projects as _projects
+        from gateway.project_binding import session_workdir
+
+        source = event.source
+        if not self._session_db:
+            from hermes_state import format_session_db_unavailable
+            return format_session_db_unavailable(
+                prefix=t("gateway.shared.session_db_unavailable_prefix")
+            )
+
+        entry = self.session_store.get_or_create_session(source)
+        session_key = entry.session_key
+        raw = event.get_command_args().strip()
+        parts = raw.split(None, 1)
+        sub = parts[0].lower() if parts else ""
+        arg = parts[1].strip() if len(parts) > 1 else ""
+
+        if sub in ("", "status"):
+            if entry.project_slug:
+                project = _projects.get_project(entry.project_slug)
+                name = (project or {}).get("name") or entry.project_slug
+                workdir = session_workdir(entry.project_slug, entry.session_id) or "—"
+                return (
+                    f'📁 This chat is working on "{name}" ({entry.project_slug}).\n'
+                    f"Session directory: {workdir}\n"
+                    "Use /project list to see all projects, or /project clear to unbind."
+                )
+            return (
+                "📁 No project bound to this chat.\n"
+                "Use /project set <name> to bind one, /project new <name> to "
+                "create one, or /project list."
+            )
+
+        if sub in ("list", "ls"):
+            items = _projects.list_projects()
+            if not items:
+                return "📁 No projects yet. Create one with /project new <name>."
+            lines = ["📁 Projects:"]
+            for p in items:
+                marker = "  ← this chat" if p.get("slug") == entry.project_slug else ""
+                lines.append(f"• {p.get('name')} ({p.get('slug')}){marker}")
+            return "\n".join(lines)
+
+        if sub == "clear":
+            try:
+                self._session_db.clear_chat_project_default(session_key)
+            except Exception:
+                logger.debug("clear_chat_project_default failed", exc_info=True)
+            if not entry.project_slug:
+                return "📁 This chat wasn't bound to a project."
+            if self._conversation_has_activity(entry.session_id):
+                await self._handle_reset_command(
+                    MessageEvent(text="/new", source=source)
+                )
+                return (
+                    "📁 Project unbound — started a fresh session outside any "
+                    "project. The previous conversation is preserved and "
+                    "resumable via /resume."
+                )
+            self._apply_project_binding(entry, "")
+            return "📁 Project unbound. New sessions in this chat start unassigned."
+
+        if sub in ("set", "new"):
+            if not arg:
+                return f"Usage: /project {sub} <name>"
+            if sub == "new":
+                try:
+                    project = _projects.create_project(arg)
+                except ValueError as e:
+                    return f"⚠️ {e}"
+                created = True
+            else:
+                project, candidates = _projects.resolve_project(arg)
+                if project is None:
+                    if candidates:
+                        opts = ", ".join(
+                            f"{c.get('name')} ({c.get('slug')})" for c in candidates
+                        )
+                        return f'⚠️ "{arg}" is ambiguous — did you mean: {opts}?'
+                    return (
+                        f'⚠️ No project matches "{arg}". Use /project list to '
+                        f"see projects, or /project new {arg} to create it."
+                    )
+                created = False
+            slug = project["slug"]
+
+            # Sticky default first: the reset below (and every future session
+            # in this chat) adopts it at session creation.
+            try:
+                self._session_db.set_chat_project_default(session_key, slug)
+            except Exception:
+                logger.debug("set_chat_project_default failed", exc_info=True)
+
+            if self._conversation_has_activity(entry.session_id):
+                await self._handle_reset_command(
+                    MessageEvent(text="/new", source=source)
+                )
+                fresh = self.session_store.get_or_create_session(source)
+                workdir = session_workdir(slug, fresh.session_id) or "—"
+                verb = "Created and bound" if created else "Bound"
+                return (
+                    f'📁 {verb} project "{project["name"]}" ({slug}) — started a '
+                    "fresh session in it.\n"
+                    f"Session directory: {workdir}\n"
+                    "The previous conversation is preserved and resumable via "
+                    "/resume. New sessions in this chat stay in this project "
+                    "until /project clear."
+                )
+
+            workdir = self._apply_project_binding(entry, slug) or "—"
+            verb = "Created and bound" if created else "Bound"
+            return (
+                f'📁 {verb} project "{project["name"]}" ({slug}).\n'
+                f"Session directory: {workdir}\n"
+                "New sessions in this chat stay in this project until "
+                "/project clear."
+            )
+
+        return (
+            f"Unknown subcommand: {sub}\n"
+            "Usage: /project [list|set|new|clear] [name]"
+        )
+
     async def _handle_resume_command(self, event: MessageEvent) -> str:
         """Handle /resume command — list or switch to a previous session."""
         if not self._session_db:

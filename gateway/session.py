@@ -1144,6 +1144,25 @@ class SessionStore:
                     entry.last_prompt_tokens = last_prompt_tokens
                 self._save()
 
+    def set_session_project(self, session_key: str, slug: str) -> Optional[SessionEntry]:
+        """Bind (or with ``""`` unbind) the LIVE session's project in place.
+
+        Used for bindings that must not reset the conversation: /project on a
+        conversation with no activity yet, and the agent's ``project_bind``
+        tool mid-conversation. Durable history/dashboard state (the sessions
+        row) and the chat's sticky default are the caller's responsibility.
+        Returns the updated entry, or None when the key is unknown.
+        """
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._entries.get(session_key)
+            if entry is None:
+                return None
+            entry.project_slug = (slug or "").strip()
+            entry.updated_at = _now()
+            self._save()
+            return entry
+
     def suspend_session(self, session_key: str) -> bool:
         """Mark a session as suspended so it auto-resets on next access.
 

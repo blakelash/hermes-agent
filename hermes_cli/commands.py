@@ -118,6 +118,10 @@ COMMAND_REGISTRY: list[CommandDef] = [
                gateway_only=True, aliases=("set-home",)),
     CommandDef("resume", "Resume a previously-named session", "Session",
                args_hint="[name]"),
+    CommandDef("project", "Bind this chat to a project (sessions group under it; work lands in its directory)",
+               "Session", gateway_only=True,
+               args_hint="[list|set|new|clear] [name]",
+               subcommands=("list", "set", "new", "clear")),
 
     # Configuration
     CommandDef("sessions", "Browse and resume previous sessions", "Session"),
@@ -1152,7 +1156,9 @@ _SLACK_PRIORITY_ALIASES = ("btw", "bg")
 #   - credits: the billing/top-up surface; reached via /hermes credits on Slack.
 #   - billing: the terminal-billing surface (buy/auto-reload/limit); /hermes billing.
 #   - debug: the log/report upload surface; reached via /hermes debug on Slack.
-_SLACK_VIA_HERMES_ONLY = frozenset({"credits", "billing", "debug"})
+#   - version: informational one-shot; /hermes version. Freed its native slot
+#     for /project (a session-shaping command users type often).
+_SLACK_VIA_HERMES_ONLY = frozenset({"credits", "billing", "debug", "version"})
 
 
 def _sanitize_slack_name(raw: str) -> str:
