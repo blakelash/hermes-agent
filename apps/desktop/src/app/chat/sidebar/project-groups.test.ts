@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest'
 import type { Project } from '@/store/dashboard'
 import type { SessionInfo } from '@/types/hermes'
 
-import { projectGroupsFor, projectSlugForCwd } from './project-groups'
+import { projectGroupsFor, projectSlugForCwd, projectSlugForSession } from './project-groups'
 
 let nextId = 0
 
@@ -57,7 +57,44 @@ describe('projectSlugForCwd', () => {
   })
 })
 
+describe('projectSlugForSession', () => {
+  it('prefers the explicit project tag over cwd derivation', () => {
+    // Retagged session: cwd under alpha but explicitly bound to beta.
+    const session = makeSession('/home/projects/alpha/s1', { project: 'beta' })
+    expect(projectSlugForSession(session, [alpha, beta])).toBe('beta')
+  })
+
+  it('groups off-host (messaging/Modal) sessions with no meaningful cwd', () => {
+    const session = makeSession(null, { project: 'alpha', source: 'telegram' })
+    expect(projectSlugForSession(session, [alpha, beta])).toBe('alpha')
+  })
+
+  it('falls back to cwd matching when no explicit tag', () => {
+    const session = makeSession('/home/projects/alpha/s1')
+    expect(projectSlugForSession(session, [alpha, beta])).toBe('alpha')
+  })
+
+  it('returns "" for unbound sessions', () => {
+    expect(projectSlugForSession(makeSession(null), [alpha, beta])).toBe('')
+    expect(projectSlugForSession(makeSession(null, { project: '  ' }), [alpha, beta])).toBe('')
+  })
+})
+
 describe('projectGroupsFor', () => {
+  it('groups explicitly tagged messaging sessions under their project', () => {
+    const tg = makeSession(null, { project: 'alpha', source: 'telegram' })
+    const groups = projectGroupsFor([tg], [alpha, beta], 'Unassigned')
+    const alphaGroup = groups.find(g => g.projectSlug === 'alpha')
+    expect(alphaGroup?.sessions.map(s => s.id)).toEqual([tg.id])
+  })
+
+  it('sends explicitly tagged sessions with an unknown slug to Unassigned', () => {
+    const orphan = makeSession(null, { project: 'ghost' })
+    const groups = projectGroupsFor([orphan], [alpha], 'Unassigned')
+    const unassigned = groups.find(g => g.projectSlug === '')
+    expect(unassigned?.sessions.map(s => s.id)).toEqual([orphan.id])
+  })
+
   it('emits a group for every registered project even with zero sessions (drop targets)', () => {
     const groups = projectGroupsFor([], [alpha, beta], 'Unassigned')
 

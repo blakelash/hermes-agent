@@ -336,6 +336,10 @@ export interface SessionInfo {
   model: null | string
   output_tokens: number
   preview: null | string
+  /** Explicit project binding slug (backend `sessions.project` column). Wins
+   *  over cwd-prefix derivation when grouping — how messaging sessions whose
+   *  work lives off-host (Modal volume) stay under their project. */
+  project?: null | string
   source: null | string
   started_at: number
   title: null | string

@@ -539,6 +539,14 @@ class SessionEntry:
     resume_reason: Optional[str] = None  # e.g. "restart_timeout"
     last_resume_marked_at: Optional[datetime] = None
 
+    # Project this session is bound to ("" = unbound). Resolved at session
+    # creation from the chat's sticky default (state.db chat_project_defaults)
+    # or set live by /project // the project_bind tool. Persisted here so a
+    # gateway restart keeps the LIVE session's binding without a DB round-trip;
+    # the durable source of truth for history/dashboard is the sessions.project
+    # column.
+    project_slug: str = ""
+
     def to_dict(self) -> Dict[str, Any]:
         result = {
             "session_key": self.session_key,
@@ -569,6 +577,7 @@ class SessionEntry:
             "was_auto_reset": self.was_auto_reset,
             "auto_reset_reason": self.auto_reset_reason,
             "reset_had_activity": self.reset_had_activity,
+            "project_slug": self.project_slug,
         }
         if self.origin:
             result["origin"] = self.origin.to_dict()
@@ -631,6 +640,7 @@ class SessionEntry:
             was_auto_reset=data.get("was_auto_reset", False),
             auto_reset_reason=data.get("auto_reset_reason"),
             reset_had_activity=data.get("reset_had_activity", False),
+            project_slug=data.get("project_slug", "") or "",
         )
 
 
@@ -1088,12 +1098,35 @@ class SessionStore:
                 logger.debug("Session DB operation failed: %s", e)
 
         if self._db and db_create_kwargs:
+            self._apply_chat_project_default(entry, db_create_kwargs)
             try:
                 self._db.create_session(**db_create_kwargs)
             except Exception as e:
                 print(f"[gateway] Warning: Failed to create SQLite session: {e}")
 
         return entry
+
+    def _apply_chat_project_default(self, entry: SessionEntry, db_create_kwargs: dict) -> None:
+        """Bind a freshly minted session to its chat's sticky project default.
+
+        The default lives in state.db (``chat_project_defaults``) keyed by the
+        gateway session_key, so it survives /new resets and gateway restarts,
+        and the desktop backend (a separate process) can also pin it. Fail-soft:
+        a DB hiccup yields an unbound session, never a failed message. Always
+        stamps ``gateway_session_key`` onto the DB row so history rows can be
+        traced back to their chat (drag-to-reassign needs this).
+        """
+        db_create_kwargs["gateway_session_key"] = entry.session_key
+        try:
+            slug = self._db.get_chat_project_default(entry.session_key)
+        except Exception as e:
+            logger.debug("chat project default lookup failed: %s", e)
+            return
+        if slug:
+            entry.project_slug = slug
+            db_create_kwargs["project"] = slug
+            with self._lock:
+                self._save()
 
     def update_session(
         self,
@@ -1110,6 +1143,31 @@ class SessionStore:
                 if last_prompt_tokens is not None:
                     entry.last_prompt_tokens = last_prompt_tokens
                 self._save()
+
+    def get_session_by_key(self, session_key: str) -> Optional[SessionEntry]:
+        """Return the live entry for *session_key* without creating one."""
+        with self._lock:
+            self._ensure_loaded_locked()
+            return self._entries.get(session_key)
+
+    def set_session_project(self, session_key: str, slug: str) -> Optional[SessionEntry]:
+        """Bind (or with ``""`` unbind) the LIVE session's project in place.
+
+        Used for bindings that must not reset the conversation: /project on a
+        conversation with no activity yet, and the agent's ``project_bind``
+        tool mid-conversation. Durable history/dashboard state (the sessions
+        row) and the chat's sticky default are the caller's responsibility.
+        Returns the updated entry, or None when the key is unknown.
+        """
+        with self._lock:
+            self._ensure_loaded_locked()
+            entry = self._entries.get(session_key)
+            if entry is None:
+                return None
+            entry.project_slug = (slug or "").strip()
+            entry.updated_at = _now()
+            self._save()
+            return entry
 
     def suspend_session(self, session_key: str) -> bool:
         """Mark a session as suspended so it auto-resets on next access.
@@ -1313,6 +1371,7 @@ class SessionStore:
                 logger.debug("Session DB operation failed: %s", e)
 
         if self._db and db_create_kwargs:
+            self._apply_chat_project_default(new_entry, db_create_kwargs)
             try:
                 self._db.create_session(**db_create_kwargs)
             except Exception as e:

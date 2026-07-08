@@ -12,6 +12,7 @@ from __future__ import annotations
 
 import json
 import os
+import time
 
 import pytest
 
@@ -113,3 +114,126 @@ def test_corrupt_store_treated_as_empty():
     assert projects.list_projects() == []
     p = projects.create_project("Recover")
     assert p["slug"] == "recover"
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# project_work_path — the in-sandbox volume path convention
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_project_work_path_levels():
+    assert projects.project_work_path("rna") == "/work/rna"
+    assert projects.project_work_path("rna", "sess1") == "/work/rna/sess1"
+    assert (
+        projects.project_work_path("rna", "sess1", "child2")
+        == "/work/rna/sess1/child2"
+    )
+
+
+def test_project_work_path_custom_volume_root():
+    assert projects.project_work_path("rna", "s", volume_root="/data/") == "/data/rna/s"
+    # Falls back to the default root when blank.
+    assert projects.project_work_path("rna", volume_root="") == "/work/rna"
+
+
+def test_project_work_path_is_posix_regardless_of_host():
+    # Sandbox paths never use the host separator.
+    path = projects.project_work_path("rna", "sess1", "child2")
+    assert "\\" not in path and path.startswith("/")
+
+
+def test_project_work_path_rejects_bad_args():
+    with pytest.raises(ValueError):
+        projects.project_work_path("")
+    with pytest.raises(ValueError):
+        projects.project_work_path("rna", "", "child-without-session")
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# resolve_project — forgiving name/slug resolution for /project set
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_resolve_exact_slug_wins():
+    projects.create_project("RNA Analysis")
+    match, candidates = projects.resolve_project("rna-analysis")
+    assert match["slug"] == "rna-analysis" and candidates == []
+
+
+def test_resolve_name_case_insensitive():
+    projects.create_project("RNA Analysis")
+    match, _ = projects.resolve_project("rna analysis")
+    assert match["slug"] == "rna-analysis"
+
+
+def test_resolve_unique_prefix():
+    projects.create_project("RNA Analysis")
+    projects.create_project("Proteomics")
+    match, _ = projects.resolve_project("prot")
+    assert match["slug"] == "proteomics"
+
+
+def test_resolve_ambiguous_prefix_returns_candidates():
+    projects.create_project("RNA Analysis")
+    projects.create_project("RNA Structures")
+    match, candidates = projects.resolve_project("rna")
+    assert match is None
+    assert {c["slug"] for c in candidates} == {"rna-analysis", "rna-structures"}
+
+
+def test_resolve_no_match_and_empty_query():
+    projects.create_project("Alpha")
+    assert projects.resolve_project("zzz") == (None, [])
+    assert projects.resolve_project("") == (None, [])
+
+
+# ──────────────────────────────────────────────────────────────────────────
+# Cross-process mutation lock
+# ──────────────────────────────────────────────────────────────────────────
+
+def test_mutation_removes_its_lockfile():
+    projects.create_project("Alpha")
+    assert not (get_hermes_home() / "projects.json.lock").exists()
+
+
+def test_held_foreign_lock_delays_but_never_wedges(monkeypatch):
+    """A fresh lockfile from another process delays the mutation; the
+    fail-soft timeout guarantees the gateway can never deadlock on it."""
+    lock = get_hermes_home() / "projects.json.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("other-pid", encoding="utf-8")
+    monkeypatch.setattr(projects, "_LOCK_WAIT_SECONDS", 0.2)
+    p = projects.create_project("Alpha")  # proceeds after the wait window
+    assert p["slug"] == "alpha"
+    lock.unlink(missing_ok=True)
+
+
+def test_stale_lock_is_reclaimed():
+    lock = get_hermes_home() / "projects.json.lock"
+    lock.parent.mkdir(parents=True, exist_ok=True)
+    lock.write_text("dead-pid", encoding="utf-8")
+    stale = time.time() - 120
+    os.utime(lock, (stale, stale))
+    p = projects.create_project("Alpha")
+    assert p["slug"] == "alpha"
+    assert not lock.exists()
+
+
+def test_concurrent_creates_lose_no_update():
+    """Two racing creators (threads simulating two processes' interleaved
+    read-modify-write) must both land in the store."""
+    import threading
+
+    errs = []
+
+    def make(name):
+        try:
+            projects.create_project(name)
+        except Exception as e:  # pragma: no cover - failure detail
+            errs.append(e)
+
+    threads = [threading.Thread(target=make, args=(f"proj {i}",)) for i in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errs
+    assert len(projects.list_projects()) == 8

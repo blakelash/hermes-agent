@@ -539,6 +539,8 @@ CREATE TABLE IF NOT EXISTS sessions (
     cache_write_tokens INTEGER DEFAULT 0,
     reasoning_tokens INTEGER DEFAULT 0,
     cwd TEXT,
+    project TEXT,
+    gateway_session_key TEXT,
     billing_provider TEXT,
     billing_base_url TEXT,
     billing_mode TEXT,
@@ -589,6 +591,12 @@ CREATE TABLE IF NOT EXISTS compression_locks (
     holder TEXT NOT NULL,
     acquired_at REAL NOT NULL,
     expires_at REAL NOT NULL
+);
+
+CREATE TABLE IF NOT EXISTS chat_project_defaults (
+    session_key TEXT PRIMARY KEY,
+    project_slug TEXT NOT NULL,
+    updated_at REAL NOT NULL
 );
 
 CREATE INDEX IF NOT EXISTS idx_sessions_source ON sessions(source);
@@ -1355,13 +1363,16 @@ class SessionDB:
         user_id: str = None,
         parent_session_id: str = None,
         cwd: str = None,
+        project: str = None,
+        gateway_session_key: str = None,
     ) -> None:
         """Shared INSERT OR IGNORE for session rows."""
         def _do(conn):
             conn.execute(
                 """INSERT OR IGNORE INTO sessions (id, source, user_id, model, model_config,
-                   system_prompt, parent_session_id, cwd, started_at)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                   system_prompt, parent_session_id, cwd, project, gateway_session_key,
+                   started_at)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     session_id,
                     source,
@@ -1371,6 +1382,8 @@ class SessionDB:
                     system_prompt,
                     parent_session_id,
                     cwd,
+                    project,
+                    gateway_session_key,
                     time.time(),
                 ),
             )
@@ -1416,6 +1429,76 @@ class SessionDB:
             conn.execute("UPDATE sessions SET cwd = ? WHERE id = ?", (cwd, session_id))
 
         self._execute_write(_do)
+
+    def update_session_project(self, session_id: str, project: str) -> None:
+        """Persist a session's explicit project binding (slug; '' unbinds).
+
+        The explicit column wins over cwd-prefix derivation everywhere a
+        session's project is surfaced (``session.list``, dashboard) — it is
+        how sessions whose work lives off-host (Modal volume) stay grouped.
+        """
+        if not session_id:
+            return
+
+        def _do(conn):
+            conn.execute(
+                "UPDATE sessions SET project = ? WHERE id = ?",
+                (project or None, session_id),
+            )
+
+        self._execute_write(_do)
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Chat project defaults (sticky per-chat project bindings)
+    # ──────────────────────────────────────────────────────────────────────
+    # Keyed by the gateway session_key (platform:chat identity), which is
+    # stable across /new resets — this is what makes a project binding
+    # "sticky" for a chat. Lives in state.db (not the gateway's sessions.json
+    # routing index) because two processes need it: the messaging gateway
+    # reads it when minting a session, and the desktop backend writes it on
+    # drag-to-reassign. WAL mode makes the cross-process access safe.
+
+    def set_chat_project_default(self, session_key: str, project_slug: str) -> None:
+        """Pin *session_key*'s chat to *project_slug* for future sessions."""
+        if not session_key or not project_slug:
+            return
+
+        def _do(conn):
+            conn.execute(
+                """INSERT INTO chat_project_defaults (session_key, project_slug, updated_at)
+                   VALUES (?, ?, ?)
+                   ON CONFLICT(session_key) DO UPDATE SET
+                       project_slug = excluded.project_slug,
+                       updated_at = excluded.updated_at""",
+                (session_key, project_slug, time.time()),
+            )
+
+        self._execute_write(_do)
+
+    def get_chat_project_default(self, session_key: str) -> Optional[str]:
+        """Return the chat's pinned project slug, or None when unpinned."""
+        if not session_key:
+            return None
+        with self._lock:
+            row = self._conn.execute(
+                "SELECT project_slug FROM chat_project_defaults WHERE session_key = ?",
+                (session_key,),
+            ).fetchone()
+        return row[0] if row else None
+
+    def clear_chat_project_default(self, session_key: str) -> None:
+        """Remove the chat's pinned project (future sessions start unbound)."""
+        if not session_key:
+            return
+
+        def _do(conn):
+            conn.execute(
+                "DELETE FROM chat_project_defaults WHERE session_key = ?",
+                (session_key,),
+            )
+
+        self._execute_write(_do)
+
     # ──────────────────────────────────────────────────────────────────────
     # Compression locks
     # ──────────────────────────────────────────────────────────────────────
@@ -2369,7 +2452,7 @@ class SessionDB:
                 for key in (
                     "id", "ended_at", "end_reason", "message_count",
                     "tool_call_count", "title", "last_active", "preview",
-                    "model", "system_prompt", "cwd",
+                    "model", "system_prompt", "cwd", "project",
                 ):
                     if key in tip_row:
                         merged[key] = tip_row[key]

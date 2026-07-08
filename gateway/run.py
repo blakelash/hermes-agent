@@ -2652,6 +2652,15 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         import itertools as _itertools
         self._slash_confirm_counter = _itertools.count(1)
 
+        # Expose the project self-assignment surface to the agent: the
+        # project_bind tool is check_fn-gated on this registration, so its
+        # schema only ships in gateway processes.
+        try:
+            from tools.project_bind_tool import register_project_binding_service
+            register_project_binding_service(self._build_project_binding_service())
+        except Exception as _pb_err:
+            logger.debug("project_bind service registration failed: %s", _pb_err)
+
         # Persistent Honcho managers keyed by gateway session key.
         # This preserves write_frequency="session" semantics across short-lived
         # per-message AIAgent instances.
@@ -8279,6 +8288,9 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         if canonical == "title":
             return await self._handle_title_command(event)
 
+        if canonical == "project":
+            return await self._handle_project_command(event)
+
         if canonical == "resume":
             return await self._handle_resume_command(event)
 
@@ -8802,6 +8814,23 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                 from agent.model_metadata import get_model_context_length
 
                 _msg_cwd = os.environ.get("TERMINAL_CWD", os.path.expanduser("~"))
+                # Project-bound sessions on the local backend resolve and
+                # contain @-references inside their project session dir
+                # instead of the global terminal cwd. Remote backends keep
+                # the global anchor: @-refs read HOST files, and the bound
+                # workdir is a sandbox path the host can't resolve.
+                try:
+                    from gateway.project_binding import backend_is_local, session_workdir
+
+                    if backend_is_local():
+                        _msg_entry = self.session_store.get_or_create_session(source)
+                        _msg_slug = getattr(_msg_entry, "project_slug", "") or ""
+                        if _msg_slug:
+                            _proj_dir = session_workdir(_msg_slug, _msg_entry.session_id)
+                            if _proj_dir and os.path.isdir(_proj_dir):
+                                _msg_cwd = _proj_dir
+                except Exception as _proj_ref_err:
+                    logger.debug("project @-ref anchor skipped: %s", _proj_ref_err)
                 _msg_runtime = _resolve_runtime_agent_kwargs()
                 _msg_config_ctx = None
                 try:
@@ -11127,6 +11156,18 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
         """
         from pathlib import Path
         from urllib.parse import quote as _quote
+
+        # Sandbox-side artifacts (remote terminal backends) must be fetched to
+        # the host before the extractors' exists() checks drop them.
+        try:
+            from gateway.media_egress import rewrite_remote_media_tags
+
+            _egress_entry = self.session_store.get_or_create_session(event.source)
+            response = await self._run_in_executor_with_context(
+                rewrite_remote_media_tags, response, _egress_entry.session_id
+            )
+        except Exception as _egress_err:
+            logger.debug("media egress rewrite skipped: %s", _egress_err)
 
         try:
             # Capture [[as_document]] before extract_media strips it, so the
@@ -15360,6 +15401,45 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             if self._ephemeral_system_prompt:
                 combined_ephemeral = (combined_ephemeral + "\n\n" + self._ephemeral_system_prompt).strip()
 
+            # Project binding: pin the session's terminal/file working
+            # directory to its project dir and bake the binding into the
+            # ephemeral prompt. The ephemeral participates in the agent-cache
+            # signature, so a binding change deliberately rebuilds the agent;
+            # the CONVERSATION's system prompt stays byte-stable regardless
+            # because continuing sessions reuse the stored prompt verbatim
+            # (agent/conversation_loop). Fail-soft: a binding problem yields
+            # an unbound session, never a failed message.
+            try:
+                _proj_entry = (
+                    self.session_store.lookup_by_session_id(session_id)
+                    if session_id and getattr(self, "session_store", None)
+                    else None
+                )
+                _proj_slug = getattr(_proj_entry, "project_slug", "") or ""
+                if _proj_slug:
+                    from gateway.project_binding import (
+                        backend_is_local,
+                        project_prompt_hint,
+                        register_session_workdir,
+                    )
+
+                    _proj_workdir = register_session_workdir(session_id, _proj_slug)
+                    if _proj_workdir:
+                        _hint = project_prompt_hint(_proj_slug, session_id)
+                        if _hint:
+                            combined_ephemeral = (
+                                combined_ephemeral + "\n\n" + _hint
+                            ).strip()
+                        if backend_is_local():
+                            # Host-backed session: the logical cwd contextvar
+                            # steers prompt env hints, context-file discovery
+                            # and relative host paths for this turn's thread.
+                            from agent.runtime_cwd import set_session_cwd
+
+                            set_session_cwd(_proj_workdir)
+            except Exception as _proj_err:
+                logger.warning("project binding skipped: %s", _proj_err)
+
             max_iterations = _current_max_iterations()
 
             try:
@@ -16251,7 +16331,25 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
                     if has_voice_directive:
                         unique_tags.insert(0, "[[audio_as_voice]]")
                     final_response = final_response + "\n" + "\n".join(unique_tags)
-            
+
+            # Sandbox-side artifacts (remote terminal backends) must be
+            # fetched to the host before delivery's exists() checks drop
+            # them — a project-bound Modal session's figure lives on the
+            # volume, not the host FS. Blocking fetch is fine HERE: run_sync
+            # executes on the executor thread, never the event loop. The
+            # post-stream delivery path (_deliver_media_from_response) has
+            # its own executor-wrapped rewrite for streamed responses that
+            # bypass this block; after this pass the tags already point at
+            # host copies, so a second pass is a cheap exists()-and-skip.
+            if "MEDIA:" in final_response:
+                try:
+                    from gateway.media_egress import rewrite_remote_media_tags
+                    final_response = rewrite_remote_media_tags(
+                        final_response, session_id
+                    )
+                except Exception as _egress_err:
+                    logger.debug("media egress rewrite skipped: %s", _egress_err)
+
             # Auto-generate session title after first exchange (non-blocking)
             if final_response and self._session_db:
                 try:

@@ -99,7 +99,7 @@ import { SidebarCronJobsSection } from './cron-jobs-section'
 import { SidebarLoadMoreRow } from './load-more-row'
 import { resolveManualSessionOrderIds } from './order'
 import { ProfileRail } from './profile-switcher'
-import { projectGroupsFor } from './project-groups'
+import { projectGroupsFor, projectSlugForSession } from './project-groups'
 import { SidebarSessionRow } from './session-row'
 import { VirtualSessionList } from './virtual-session-list'
 import { type SidebarSessionGroup, type SidebarWorkspaceTree } from './workspace-groups'
@@ -527,20 +527,45 @@ export function ChatSidebar({
   // sections below, so there is no source-grouping magic to untangle here.
   //
   // Grouped mode organizes sessions by PROJECT: each registered project is a
-  // group (keyed by the longest cwd-prefix match, the client-side twin of the
-  // backend `project_for_cwd`), sessions under no project fall into
-  // "Unassigned". Every project shows even when empty so it stays a visible,
-  // droppable target. Messaging sessions gain project membership once they
-  // carry a per-session project cwd (gateway work) and then flow in here too.
+  // group (explicit `project` tag first, else longest cwd-prefix match — see
+  // projectSlugForSession), sessions under no project fall into "Unassigned".
+  // Every project shows even when empty so it stays a visible, droppable
+  // target. Messaging sessions WITH a project join their project's group here
+  // (they leave the per-platform sections below to avoid double rows);
+  // unassigned messaging stays in its per-platform sections rather than
+  // flooding the "Unassigned" bucket.
   const projectGroupingActive = agentsGrouped && !showAllProfiles
+
+  const projectBoundMessagingIds = useMemo<Set<string>>(() => {
+    if (!projectGroupingActive) {
+      return new Set()
+    }
+
+    return new Set(
+      messagingSessions
+        .filter(session => projectSlugForSession(session, projects))
+        .map(session => session.id)
+    )
+  }, [projectGroupingActive, messagingSessions, projects])
 
   const projectGroups = useMemo<SidebarSessionGroup[] | undefined>(() => {
     if (!projectGroupingActive) {
       return undefined
     }
 
-    return projectGroupsFor(agentSessions, projects, s.unassigned)
-  }, [projectGroupingActive, agentSessions, projects, s.unassigned])
+    const boundMessaging = messagingSessions.filter(session =>
+      projectBoundMessagingIds.has(session.id)
+    )
+
+    return projectGroupsFor([...agentSessions, ...boundMessaging], projects, s.unassigned)
+  }, [
+    projectGroupingActive,
+    agentSessions,
+    messagingSessions,
+    projectBoundMessagingIds,
+    projects,
+    s.unassigned
+  ])
 
   const loadMoreForProfileGroup = useCallback(
     (profile: string) => {
@@ -596,6 +621,12 @@ export function ChatSidebar({
     const bySource = new Map<string, SessionInfo[]>()
 
     for (const session of messagingSessions) {
+      // Project-bound messaging sessions render inside their project group
+      // (projectGroups above) — skip them here so they don't show twice.
+      if (projectBoundMessagingIds.has(session.id)) {
+        continue
+      }
+
       const sourceId = normalizeSessionSource(session.source)
 
       if (!sourceId) {
@@ -625,7 +656,7 @@ export function ChatSidebar({
         }
       })
       .sort((a, b) => sessionTime(b.sessions[0]) - sessionTime(a.sessions[0]))
-  }, [messagingSessions, messagingPlatformTotals, messagingTruncated])
+  }, [messagingSessions, projectBoundMessagingIds, messagingPlatformTotals, messagingTruncated])
 
   // ALL-profiles view: one collapsible group per profile, color on the header
   // (not on every row). Default profile floats to the top, the rest alpha.

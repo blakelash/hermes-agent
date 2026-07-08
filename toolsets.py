@@ -53,6 +53,10 @@ _HERMES_CORE_TOOLS = [
     "todo", "memory",
     # Session history search
     "session_search",
+    # Project self-assignment — only in schema when the messaging gateway has
+    # registered the binding service (check_fn in tools/project_bind_tool.py);
+    # hidden in CLI/cron/batch contexts.
+    "project_bind",
     # Clarifying questions
     "clarify",
     # Code execution + delegation

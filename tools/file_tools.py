@@ -166,6 +166,22 @@ def _registered_task_cwd_override(task_id: str = "default") -> str | None:
     return _sentinel_free_abs_cwd(overrides.get("cwd"))
 
 
+def _task_cwd_is_pinned(task_id: str = "default") -> bool:
+    """True when the task's registered cwd override is pinned (``pin_cwd``).
+
+    Project-bound gateway sessions pin their working directory: it must win
+    over the shared environment's live cwd tracker, which carries OTHER
+    sessions' ``cd`` state (many sessions share the collapsed "default"
+    container).
+    """
+    try:
+        from tools.terminal_tool import resolve_task_overrides
+
+        return bool(resolve_task_overrides(task_id).get("pin_cwd"))
+    except Exception:
+        return False
+
+
 def _get_live_tracking_cwd(task_id: str = "default") -> str | None:
     """Return the task's live terminal cwd for bookkeeping when available."""
     try:
@@ -210,11 +226,17 @@ def _authoritative_workspace_root(task_id: str = "default") -> str | None:
 
     Returns ``None`` only when there is genuinely no reliable anchor, in which
     case callers fall back to the process cwd.
+
+    Exception to the live-cwd preference: a PINNED override (project-bound
+    gateway session) outranks the live tracker — the live cwd belongs to the
+    shared "default" environment and carries other sessions' ``cd`` state.
     """
+    registered = _registered_task_cwd_override(task_id)
+    if registered and _task_cwd_is_pinned(task_id):
+        return registered
     live = _get_live_tracking_cwd(task_id)
     if live:
         return live
-    registered = _registered_task_cwd_override(task_id)
     if registered:
         return registered
     return _configured_terminal_cwd()

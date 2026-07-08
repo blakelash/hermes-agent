@@ -965,6 +965,12 @@ export interface Translations {
       renameFailed: string
       renameTitle: string
       renameDesc: string
+      moveToProject: string
+      moveToProjectDesc: string
+      moveToProjectNone: string
+      moveToProjectFailed: string
+      movedToProject: (name: string) => string
+      removedFromProject: string
       untitledPlaceholder: string
       ageNow: string
       ageDay: string

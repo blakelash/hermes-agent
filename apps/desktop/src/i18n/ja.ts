@@ -1369,6 +1369,13 @@ export const ja = defineLocale({
       renameFailed: '名前の変更に失敗しました',
       renameTitle: 'セッションの名前を変更',
       renameDesc: 'このチャットにわかりやすいタイトルをつけてください。空欄にするとクリアされます。',
+      moveToProject: 'プロジェクトへ移動',
+      moveToProjectDesc:
+        'このセッションをプロジェクトにまとめます。メッセージングのチャットでは、次のセッションもそのプロジェクトで開始されます。',
+      moveToProjectNone: 'プロジェクトなし',
+      moveToProjectFailed: 'セッションを移動できませんでした',
+      movedToProject: name => `${name} に移動しました`,
+      removedFromProject: 'プロジェクトから外しました',
       untitledPlaceholder: '無題のセッション',
       ageNow: 'たった今',
       ageDay: '日',

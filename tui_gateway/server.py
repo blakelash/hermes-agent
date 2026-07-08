@@ -4702,12 +4702,12 @@ def _(rid, params: dict) -> dict:
             for s in db.list_sessions_rich(source=None, limit=fetch_limit)
             if (s.get("source") or "").strip().lower() not in deny
         ][:limit]
-        # Tag each session with the project its cwd belongs to (longest-prefix
-        # match, the same derivation the desktop uses for live sessions). This
-        # is what lets the sidebar group sessions from EVERY platform — desktop,
-        # Telegram, Slack — under one project tree from a single feed. The
-        # registry is read once and reused across the whole list. Sessions with
-        # no cwd or a cwd under no project get "" (the "Unassigned" bucket).
+        # Tag each session with its project. The EXPLICIT ``sessions.project``
+        # column wins (how messaging-gateway sessions whose work lives
+        # off-host — Modal volume — stay grouped); rows without it fall back
+        # to cwd longest-prefix derivation, the same derivation the desktop
+        # uses for live sessions. One registry read serves the whole list.
+        # Sessions with neither get "" (the "Unassigned" bucket).
         try:
             from tools.projects import list_projects, project_for_cwd
 
@@ -4715,7 +4715,11 @@ def _(rid, params: dict) -> dict:
         except Exception:
             _projects, project_for_cwd = [], None
 
-        def _slug_for(cwd: str) -> str:
+        def _slug_for(row: dict) -> str:
+            explicit = str(row.get("project") or "").strip()
+            if explicit:
+                return explicit
+            cwd = row.get("cwd") or ""
             if not cwd or project_for_cwd is None:
                 return ""
             match = project_for_cwd(cwd, _projects)
@@ -4735,7 +4739,7 @@ def _(rid, params: dict) -> dict:
                         "message_count": s.get("message_count") or 0,
                         "source": s.get("source") or "",
                         "cwd": s.get("cwd") or "",
-                        "project": _slug_for(s.get("cwd") or ""),
+                        "project": _slug_for(s),
                     }
                     for s in rows
                 ]
@@ -5158,6 +5162,72 @@ def _(rid, params: dict) -> dict:
     }
     _emit("session.info", params.get("session_id", ""), info)
     return _ok(rid, info)
+
+
+@method("session.project.set")
+def _(rid, params: dict) -> dict:
+    """Retag a NON-live session's project (drag-to-reassign for messaging rows).
+
+    Live TUI sessions rebind through ``session.cwd.set`` (which moves the
+    working directory too); this method covers rows this process doesn't own —
+    messaging-gateway sessions and ended history. It stamps the explicit
+    ``sessions.project`` column (grouping takes effect immediately in
+    ``session.list``) and, when the row carries its chat identity
+    (``gateway_session_key``), pins/clears the chat's sticky default so the
+    chat's NEXT session actually works in the project. An empty ``project``
+    clears both. Returns ``{project, chat_default_updated}``.
+    """
+    db = _get_db()
+    if db is None:
+        return _db_unavailable_error(rid, code=5006)
+    session_id = str(params.get("session_id") or "").strip()
+    if not session_id:
+        return _err(rid, 4016, "session_id required")
+    # Enforce the non-live contract: retagging a session that is LIVE in this
+    # workspace would make sidebar grouping (explicit project column) diverge
+    # from where the runtime session actually works (its project_slug/cwd).
+    # Live sessions rebind through session.cwd.set {project}, which moves the
+    # working directory too. Messaging-gateway sessions live in a different
+    # process and are invisible here — for them retag+sticky is the contract.
+    with _sessions_lock:
+        _live = session_id in _sessions
+    if _live:
+        return _err(
+            rid, 4009,
+            "session is live in this workspace — use session.cwd.set with "
+            "{project} to rebind it",
+        )
+    slug = str(params.get("project") or "").strip()
+    try:
+        row = db.get_session(session_id)
+    except Exception as e:
+        return _err(rid, 5006, str(e))
+    if not row:
+        return _err(rid, 4018, f"unknown session: {session_id}")
+    if slug:
+        try:
+            from tools.projects import get_project
+
+            if get_project(slug) is None:
+                return _err(rid, 4018, f"unknown project slug: {slug}")
+        except Exception as e:
+            return _err(rid, 5006, str(e))
+    try:
+        db.update_session_project(session_id, slug)
+    except Exception as e:
+        return _err(rid, 5006, str(e))
+    chat_key = str(row.get("gateway_session_key") or "").strip()
+    chat_default_updated = False
+    if chat_key:
+        try:
+            if slug:
+                db.set_chat_project_default(chat_key, slug)
+            else:
+                db.clear_chat_project_default(chat_key)
+            chat_default_updated = True
+        except Exception:
+            logger.debug("chat default update failed", exc_info=True)
+    return _ok(rid, {"project": slug, "chat_default_updated": chat_default_updated})
 
 
 def _session_pending_kind(sid: str) -> str:

@@ -1,3 +1,4 @@
+import { useStore } from '@nanostores/react'
 import type * as React from 'react'
 import { useEffect, useRef, useState } from 'react'
 
@@ -15,13 +16,19 @@ import {
 } from '@/components/ui/dialog'
 import { DropdownMenu, DropdownMenuContent, DropdownMenuItem, DropdownMenuTrigger } from '@/components/ui/dropdown-menu'
 import { Input } from '@/components/ui/input'
-import { renameSession } from '@/hermes'
+import { renameSession, type SessionInfo } from '@/hermes'
 import { useI18n } from '@/i18n'
 import { triggerHaptic } from '@/lib/haptics'
 import { exportSession } from '@/lib/session-export'
+import { $projects } from '@/store/dashboard'
 import { activeGateway } from '@/store/gateway'
 import { notify, notifyError } from '@/store/notifications'
-import { $activeSessionId, $selectedStoredSessionId, setSessions } from '@/store/session'
+import {
+  $activeSessionId,
+  $selectedStoredSessionId,
+  setMessagingSessions,
+  setSessions
+} from '@/store/session'
 import { canOpenSessionWindow, openSessionInNewWindow } from '@/store/windows'
 
 import type { SessionTitleResponse } from '../../types'
@@ -71,6 +78,93 @@ export async function renameSessionPreferringRpc(
   return renameSession(storedSessionId, title, profile)
 }
 
+// Reassign a session to a project (or with '' unassign it) via the
+// session.project.set RPC. It stamps the durable sessions.project column —
+// grouping updates immediately — and, when the row carries its chat identity,
+// pins the chat's sticky default so the chat's NEXT session actually works in
+// the project. Both sidebar slices are updated optimistically so the row
+// moves without waiting for a refetch.
+async function moveSessionToProject(sessionId: string, slug: string): Promise<void> {
+  const gateway = activeGateway()
+
+  if (!gateway) {
+    throw new Error('gateway unavailable')
+  }
+
+  await gateway.request('session.project.set', { project: slug, session_id: sessionId })
+
+  const retag = (list: SessionInfo[]) =>
+    list.map(session => (session.id === sessionId ? { ...session, project: slug } : session))
+
+  setSessions(retag)
+  setMessagingSessions(retag)
+}
+
+function MoveToProjectDialog({
+  onOpenChange,
+  open,
+  sessionId
+}: {
+  onOpenChange: (open: boolean) => void
+  open: boolean
+  sessionId: string
+}) {
+  const { t } = useI18n()
+  const r = t.sidebar.row
+  const projects = useStore($projects)
+  const [busy, setBusy] = useState(false)
+
+  const choose = (slug: string, name: string) => {
+    setBusy(true)
+
+    void moveSessionToProject(sessionId, slug)
+      .then(() => {
+        notify({
+          durationMs: 2_000,
+          kind: 'success',
+          message: slug ? r.movedToProject(name) : r.removedFromProject
+        })
+        onOpenChange(false)
+      })
+      .catch(err => notifyError(err, r.moveToProjectFailed))
+      .finally(() => setBusy(false))
+  }
+
+  return (
+    <Dialog onOpenChange={onOpenChange} open={open}>
+      <DialogContent className="max-w-sm">
+        <DialogHeader>
+          <DialogTitle>{r.moveToProject}</DialogTitle>
+          <DialogDescription>{r.moveToProjectDesc}</DialogDescription>
+        </DialogHeader>
+        <div className="flex max-h-72 flex-col gap-1 overflow-y-auto">
+          {projects.map(project => (
+            <Button
+              className="justify-start"
+              disabled={busy}
+              key={project.slug}
+              onClick={() => choose(project.slug, project.name || project.slug)}
+              variant="ghost"
+            >
+              <Codicon name="folder" size="0.875rem" />
+              <span className="truncate">{project.name || project.slug}</span>
+            </Button>
+          ))}
+          <Button
+            className="justify-start"
+            disabled={busy}
+            onClick={() => choose('', '')}
+            variant="ghost"
+          >
+            <Codicon name="circle-slash" size="0.875rem" />
+            <span>{r.moveToProjectNone}</span>
+          </Button>
+        </div>
+      </DialogContent>
+    </Dialog>
+  )
+}
+
 interface SessionActions {
   sessionId: string
   title: string
@@ -96,6 +190,7 @@ function useSessionActions({ sessionId, title, pinned = false, profile, onPin, o
   const { t } = useI18n()
   const r = t.sidebar.row
   const [renameOpen, setRenameOpen] = useState(false)
+  const [moveOpen, setMoveOpen] = useState(false)
 
   const pinItem: ItemSpec = {
     disabled: !onPin,
@@ -137,6 +232,15 @@ function useSessionActions({ sessionId, title, pinned = false, profile, onPin, o
       onSelect: () => {
         triggerHaptic('selection')
         setRenameOpen(true)
+      }
+    },
+    {
+      disabled: !sessionId,
+      icon: 'folder-opened',
+      label: r.moveToProject,
+      onSelect: () => {
+        triggerHaptic('selection')
+        setMoveOpen(true)
       }
     },
     {
@@ -185,13 +289,16 @@ function useSessionActions({ sessionId, title, pinned = false, profile, onPin, o
   )
 
   const renameDialog = (
-    <RenameSessionDialog
-      currentTitle={title}
-      onOpenChange={setRenameOpen}
-      open={renameOpen}
-      profile={profile}
-      sessionId={sessionId}
-    />
+    <>
+      <RenameSessionDialog
+        currentTitle={title}
+        onOpenChange={setRenameOpen}
+        open={renameOpen}
+        profile={profile}
+        sessionId={sessionId}
+      />
+      <MoveToProjectDialog onOpenChange={setMoveOpen} open={moveOpen} sessionId={sessionId} />
+    </>
   )
 
   return { renameDialog, renderItems }
