@@ -1368,3 +1368,43 @@ not the specific names.
 
 Reviewers should reject new change-detector tests; authors should convert
 them into invariants before re-requesting review.
+
+---
+
+## Cursor Cloud specific instructions
+
+Environment/dependency install is handled automatically by the Cloud Agent
+update script (`uv venv .venv` + `uv pip install -e ".[all,dev]"` + `npm
+install`). The notes below are the non-obvious startup/run caveats — standard
+commands live in `README.md`, `CLAUDE.md`, and the sections above.
+
+- **`uv` is not on `PATH` by default.** It installs to `~/.local/bin/uv`.
+  Either call it by absolute path (`"$HOME/.local/bin/uv" ...`) or
+  `export PATH="$HOME/.local/bin:$PATH"` in your shell first. Node/npm (nvm)
+  are already on `PATH`.
+- **Activate the venv before Python work:** `source .venv/bin/activate`
+  (Python 3.11). `scripts/run_tests.sh` finds `.venv` on its own.
+- **Tests:** use `scripts/run_tests.sh` (never bare `pytest`) — see the
+  Testing section. Per-file subprocess isolation makes the full suite slow on
+  the 4-core VM; scope to a directory/file while iterating. A few tests are
+  timing/mtime-sensitive (e.g. cache-invalidation-on-config-edit) and can
+  flake under limited CPU — rerun the specific test before assuming a real
+  failure.
+- **TUI (`ui-tui`): build the `@hermes/ink` workspace subpackage before
+  `npm test` / `npm run dev`.** Run `npm run build --prefix
+  ui-tui/packages/hermes-ink` (or `npm run dev` / `npm run build`, which build
+  it). Without its `dist/entry-exports.js`, ~28 vitest files fail at import.
+  Run TUI npm commands with node/npm from nvm.
+- **No LLM provider credentials are configured in this environment.** The
+  interactive/one-shot agent (`hermes`, `hermes chat`) needs an
+  OpenAI-compatible endpoint. To exercise the real agent loop without a live
+  provider, point Hermes at any OpenAI-compatible endpoint via
+  `provider: custom` + `model.base_url` (in an isolated `HERMES_HOME`) and
+  `OPENAI_API_KEY`; a local mock server implementing
+  `/v1/chat/completions` (streaming + non-streaming) and `/v1/models` is
+  enough. For real usage, set a provider key (e.g. `OPENROUTER_API_KEY`) as a
+  Cloud secret and pick a model with `hermes model`.
+- **The interactive `hermes` CLI requires a real TTY** — piped stdin prints
+  "Input is not a terminal" and skips the turn. For scripted/non-interactive
+  runs use `hermes chat -q "<prompt>"` (add `-Q` for quiet output, `--yolo`
+  to bypass command-approval prompts).
