@@ -1,0 +1,57 @@
+name: Claude Code Review
+
+on:
+  pull_request:
+    types: [opened, synchronize, ready_for_review, reopened]
+
+concurrency:
+  group: claude-review-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  claude-review:
+    # Skip drafts and bot-authored PRs (e.g. dependabot, Claude's own PRs)
+    if: |
+      github.event.pull_request.draft == false &&
+      !endsWith(github.event.pull_request.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: write
+      id-token: write
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v6
+        with:
+          fetch-depth: 1
+
+      - name: Claude Code Review
+        uses: anthropics/claude-code-action@v1
+        with:
+          anthropic_api_key: ${{ secrets.ANTHROPIC_API_KEY }}
+          track_progress: true
+          prompt: |
+            REPO: ${{ github.repository }}
+            PR NUMBER: ${{ github.event.pull_request.number }}
+
+            Review this pull request. Read CLAUDE.md and the contribution
+            rubric in AGENTS.md first, and evaluate the change against them,
+            with particular attention to:
+
+            1. **Correctness** — bugs, error handling, edge cases.
+            2. **Repo invariants** — per-conversation prompt caching must not
+               be broken (no mutating past context, swapping toolsets, or
+               rebuilding the system prompt mid-conversation); new capability
+               belongs at the edges (plugins/skills), not the core.
+            3. **Conventions** — `get_hermes_home()` instead of hardcoded
+               `~/.hermes`; behavioral config in config.yaml not .env;
+               explicit `encoding=` on file I/O; cross-platform (Windows,
+               macOS, Linux); upper-bounded dependency pins.
+            4. **Tests** — adequate coverage; no change-detector tests.
+
+            Provide feedback using inline comments for specific issues and a
+            top-level comment for overall assessment. Be concise; skip praise
+            padding. If the PR looks good, say so briefly.
+
+          claude_args: |
+            --allowedTools "mcp__github_inline_comment__create_inline_comment,Bash(gh pr comment:*),Bash(gh pr diff:*),Bash(gh pr view:*),Bash(gh issue view:*)"
