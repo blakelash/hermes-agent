@@ -2024,15 +2024,13 @@ def _run_single_child(
             _unregister_subagent(_subagent_id)
             # Drop an inherited project workdir pin (never isolation
             # overrides, which use image/env_type keys and outlive children
-            # by design in RL rollouts). Raw-keyed lookup on purpose:
-            # resolve_task_overrides falls back to the collapsed container
-            # key, which is not this child's own registration.
+            # by design in RL rollouts).
             try:
                 from tools.terminal_tool import (
-                    _task_env_overrides,
                     clear_task_env_overrides,
+                    is_pinned_cwd,
                 )
-                if (_task_env_overrides.get(_subagent_id) or {}).get("pin_cwd"):
+                if is_pinned_cwd(_subagent_id):
                     clear_task_env_overrides(_subagent_id)
             except Exception:
                 pass

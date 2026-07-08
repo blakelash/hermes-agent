@@ -3164,12 +3164,30 @@ class GatewaySlashCommandsMixin:
                         'projects or action="create" to create it'
                     )
             slug = project["slug"]
+            # The immediate bind (this session's workdir) works without the
+            # DB; stickiness (future sessions auto-binding) is DB-backed.
+            # Report honestly when that durability layer failed rather than
+            # promising behavior we can't deliver.
+            sticky = False
             try:
-                self._session_db.set_chat_project_default(session_key, slug)
+                if self._session_db is not None:
+                    self._session_db.set_chat_project_default(session_key, slug)
+                    sticky = True
             except Exception:
                 logger.debug("set_chat_project_default failed", exc_info=True)
             # evict_agent=False: this runs INSIDE the agent's turn.
             workdir = self._apply_project_binding(entry, slug, evict_agent=False)
+            note = (
+                "Terminal and file tools now operate in workdir; do this "
+                "session's work there. "
+            )
+            note += (
+                "The chat stays bound to this project for future sessions."
+                if sticky
+                else "WARNING: the sticky default could not be persisted "
+                "(session DB unavailable) — this binding applies to the "
+                "current session only."
+            )
             return {
                 "bound": True,
                 "created": bool(create),
@@ -3178,11 +3196,8 @@ class GatewaySlashCommandsMixin:
                 "workdir": workdir
                 or session_workdir(slug, entry.session_id)
                 or "",
-                "note": (
-                    "Terminal and file tools now operate in workdir; do this "
-                    "session's work there. The chat stays bound to this "
-                    "project for future sessions."
-                ),
+                "sticky": sticky,
+                "note": note,
             }
 
         return {"status": _status, "list": _list, "bind": _bind}
@@ -3246,6 +3261,10 @@ class GatewaySlashCommandsMixin:
                 logger.debug("clear_chat_project_default failed", exc_info=True)
             if not entry.project_slug:
                 return "📁 This chat wasn't bound to a project."
+            # Active conversation: reset into a fresh unbound session (the
+            # cleared default means the successor won't rebind) and RETURN —
+            # `entry` refers to the pre-reset session from here on. Only the
+            # empty-conversation case falls through to the in-place unbind.
             if self._conversation_has_activity(entry.session_id):
                 await self._handle_reset_command(
                     MessageEvent(text="/new", source=source)

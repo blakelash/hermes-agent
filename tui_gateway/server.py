@@ -5183,6 +5183,20 @@ def _(rid, params: dict) -> dict:
     session_id = str(params.get("session_id") or "").strip()
     if not session_id:
         return _err(rid, 4016, "session_id required")
+    # Enforce the non-live contract: retagging a session that is LIVE in this
+    # workspace would make sidebar grouping (explicit project column) diverge
+    # from where the runtime session actually works (its project_slug/cwd).
+    # Live sessions rebind through session.cwd.set {project}, which moves the
+    # working directory too. Messaging-gateway sessions live in a different
+    # process and are invisible here — for them retag+sticky is the contract.
+    with _sessions_lock:
+        _live = session_id in _sessions
+    if _live:
+        return _err(
+            rid, 4009,
+            "session is live in this workspace — use session.cwd.set with "
+            "{project} to rebind it",
+        )
     slug = str(params.get("project") or "").strip()
     try:
         row = db.get_session(session_id)

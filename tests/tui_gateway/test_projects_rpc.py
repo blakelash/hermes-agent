@@ -379,3 +379,17 @@ def test_project_set_rejects_unknowns(clean_sessions, rpc_db):
 
     err = _call("session.project.set", {"project": "demo"})["error"]
     assert err["code"] == 4016
+
+
+def test_project_set_rejects_live_workspace_session(clean_sessions, rpc_db):
+    """Live sessions must rebind via session.cwd.set — retagging them would
+    split UI grouping from the runtime session's actual project/cwd."""
+    projects.create_project("Demo")
+    rpc_db.create_session("live1", "tui")
+    _seed_session("live1", "k1", "/")
+
+    err = _call("session.project.set", {"session_id": "live1", "project": "demo"})["error"]
+
+    assert err["code"] == 4009
+    assert "session.cwd.set" in err["message"]
+    assert rpc_db.get_session("live1")["project"] is None  # untouched

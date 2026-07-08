@@ -1007,6 +1007,19 @@ def clear_task_env_overrides(task_id: str):
     _task_env_overrides.pop(task_id, None)
 
 
+def is_pinned_cwd(task_id: Optional[str]) -> bool:
+    """True when *task_id* has its OWN pinned cwd override (raw-keyed).
+
+    Deliberately does not fall back to the collapsed container key the way
+    :func:`resolve_task_overrides` does — a child sharing the "default"
+    container must not inherit pin-ness it never registered. Public so
+    callers (delegation cleanup) don't reach into ``_task_env_overrides``.
+    """
+    if not task_id:
+        return False
+    return bool((_task_env_overrides.get(task_id) or {}).get("pin_cwd"))
+
+
 def inherit_pinned_cwd(parent_task_id: Optional[str], child_task_id: str) -> Optional[str]:
     """Nest a child task's pinned cwd under its parent's pinned cwd.
 
@@ -2032,12 +2045,14 @@ def _resolve_command_cwd(
     return default_cwd
 
 
-# (env instance id, cwd) pairs already ensured to exist inside that live
-# environment. Keyed by id(env) so a recreated sandbox (idle-reaped and
-# rebuilt) is re-ensured — the directory may only exist on a durable volume,
-# or may never have existed if the previous ensure raced teardown.
-_pinned_cwd_ready: set = set()
 _pinned_cwd_ready_lock = threading.Lock()
+# Attribute stamped onto the live environment object listing pinned dirs
+# already created in it. Living ON the env (not in a module-global keyed by
+# id(env)) means the marker dies with the env — a recreated sandbox is
+# re-ensured (its FS may be fresh unless volume-backed), a GC'd env can't
+# leak a stale marker onto a new object reusing its address, and nothing
+# grows unboundedly.
+_PINNED_READY_ATTR = "_hermes_pinned_cwds_ready"
 
 
 def _ensure_pinned_cwd(env: Any, pinned_cwd: str) -> None:
@@ -2045,20 +2060,42 @@ def _ensure_pinned_cwd(env: Any, pinned_cwd: str) -> None:
 
     Pinned dirs (``<volume_root>/<project>/<session>``) don't exist until a
     bound session first touches the environment; the per-exec wrap does
-    ``cd || exit 126`` with no mkdir, so every command would fail. Fail-soft:
-    on error the subsequent command still surfaces exit 126 with a clear cwd,
-    which is a better signal than failing here.
+    ``cd || exit 126`` with no mkdir, so every command would fail. Only a
+    VERIFIED-successful mkdir is cached as ready — a failed attempt retries
+    on the next command. Fail-soft: on error the subsequent command still
+    surfaces exit 126 with a clear cwd, a better signal than failing here.
     """
-    key = (id(env), pinned_cwd)
     with _pinned_cwd_ready_lock:
-        if key in _pinned_cwd_ready:
+        ready = getattr(env, _PINNED_READY_ATTR, None)
+        if ready is not None and pinned_cwd in ready:
             return
     try:
         import shlex as _shlex
 
-        env.execute(f"mkdir -p -- {_shlex.quote(pinned_cwd)}", cwd="/", timeout=60)
+        result = env.execute(
+            f"mkdir -p -- {_shlex.quote(pinned_cwd)}", cwd="/", timeout=60
+        )
+        # Backends report failure via the result payload, not exceptions.
+        rc = None
+        if isinstance(result, dict):
+            rc = result.get("returncode", result.get("exit_code"))
+        else:
+            rc = getattr(result, "returncode", getattr(result, "exit_code", None))
+        if rc not in (0, None):
+            logger.warning(
+                "mkdir of pinned cwd %s failed (exit %s); will retry next command",
+                pinned_cwd, rc,
+            )
+            return
         with _pinned_cwd_ready_lock:
-            _pinned_cwd_ready.add(key)
+            ready = getattr(env, _PINNED_READY_ATTR, None)
+            if ready is None:
+                ready = set()
+                try:
+                    setattr(env, _PINNED_READY_ATTR, ready)
+                except Exception:
+                    return  # env forbids attributes (exotic test double) — just retry next time
+            ready.add(pinned_cwd)
     except Exception as e:
         logger.warning("could not ensure pinned cwd %s: %s", pinned_cwd, e)
 

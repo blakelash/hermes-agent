@@ -114,6 +114,35 @@ def test_ensure_pinned_cwd_failure_is_soft():
     tt._ensure_pinned_cwd(_FailingEnv(), "/work/p/s")  # must not raise
 
 
+def test_ensure_pinned_cwd_retries_after_failed_mkdir():
+    """A non-zero mkdir exit must NOT be cached as ready (read-only volume,
+    transient sandbox hiccup): the next command retries and can succeed."""
+
+    class _FlakyEnv:
+        def __init__(self):
+            self.calls = 0
+
+        def execute(self, command, cwd=None, timeout=None):
+            self.calls += 1
+            return {"output": "", "returncode": 1 if self.calls == 1 else 0}
+
+    env = _FlakyEnv()
+    tt._ensure_pinned_cwd(env, "/work/p/s")  # fails, not cached
+    tt._ensure_pinned_cwd(env, "/work/p/s")  # retries, succeeds, cached
+    tt._ensure_pinned_cwd(env, "/work/p/s")  # cached — no third exec
+    assert env.calls == 2
+
+
+def test_is_pinned_cwd_raw_keyed():
+    try:
+        tt.register_task_env_overrides("pin-sess", {"cwd": "/work/p/s", "pin_cwd": True})
+        assert tt.is_pinned_cwd("pin-sess") is True
+        assert tt.is_pinned_cwd("other-task") is False  # no collapsed fallback
+        assert tt.is_pinned_cwd(None) is False
+    finally:
+        _cleanup_override("pin-sess")
+
+
 # ──────────────────────────────────────────────────────────────────────────
 # file_tools base-dir resolution
 # ──────────────────────────────────────────────────────────────────────────

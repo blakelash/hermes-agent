@@ -12,9 +12,15 @@ Size-capped by ``terminal.media_fetch_max_mb`` (config.yaml): oversized
 artifacts stay on the volume and the tag is left as-is, which surfaces the
 usual "file not found" warning naming the in-sandbox path.
 
-Scope: DIRECT mode only. Managed-Modal sandboxes are owned by a remote
-gateway service with no exec transport from this process; their tags pass
-through unchanged (documented limitation).
+Scope: any non-local terminal backend whose environment exposes a working
+``execute()`` transport (validated on direct Modal; docker/ssh share the same
+mechanics). Managed-Modal environments also expose ``execute()`` but this path
+is untested there — every failure mode degrades to the pass-through-plus-
+warning behavior, never a failed message.
+
+Blocking I/O by design: both call sites run OFF the event loop — the
+background result path calls this inside ``run_sync`` (executor thread) and
+the post-stream path wraps it in ``_run_in_executor_with_context``.
 """
 
 from __future__ import annotations

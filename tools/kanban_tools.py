@@ -829,10 +829,18 @@ def _handle_create(args: dict, **kw) -> str:
                         and _caller_pin.get("pin_cwd")
                         and _caller_pin.get("cwd")
                     ):
+                        import re as _re
                         import uuid as _uuid
 
+                        # Human-readable dir: a title slug plus a short uuid
+                        # (the task id doesn't exist until create_task below,
+                        # so it can't participate in the name).
+                        _title_slug = _re.sub(
+                            r"[^a-z0-9]+", "-", str(title).strip().lower()
+                        ).strip("-")[:32] or "task"
                         _proj_ws = os.path.join(
-                            str(_caller_pin["cwd"]), f"kanban-{_uuid.uuid4().hex[:8]}"
+                            str(_caller_pin["cwd"]),
+                            f"kanban-{_title_slug}-{_uuid.uuid4().hex[:8]}",
                         )
                         os.makedirs(_proj_ws, exist_ok=True)
                         workspace_kind = "dir"

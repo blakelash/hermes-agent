@@ -168,7 +168,30 @@ def test_real_service_create_and_status(tmp_path, session_ctx):
 
     out = json.loads(pbt.project_bind_tool("create", "Fresh Effort"))
     assert out["created"] is True and out["project"] == "fresh-effort"
+    assert out["sticky"] is True
 
     status = json.loads(pbt.project_bind_tool("status"))
     assert status["bound"] is True and status["project"] == "fresh-effort"
+    db.close()
+
+
+def test_bind_reports_degraded_stickiness_when_db_broken(tmp_path, session_ctx):
+    """The immediate bind still works, but the tool must not promise sticky
+    behavior the durability layer can't deliver."""
+    runner, db, entry = _make_runner(tmp_path)
+    projects.create_project("RNA")
+    db.create_session(SESSION_ID, "telegram")
+
+    def _boom(*a, **k):
+        raise RuntimeError("db down")
+
+    runner._session_db.set_chat_project_default = _boom
+    pbt.register_project_binding_service(runner._build_project_binding_service())
+
+    out = json.loads(pbt.project_bind_tool("bind", "rna"))
+
+    assert out["bound"] is True  # immediate bind still applied
+    assert entry.project_slug == "rna"
+    assert out["sticky"] is False
+    assert "could not be persisted" in out["note"]
     db.close()

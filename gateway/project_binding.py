@@ -150,6 +150,9 @@ def project_prompt_hint(slug: str, session_id: str) -> str:
         f'This conversation is bound to the project "{name}" (slug: {slug}).',
         f"Your working directory for this session is {workdir} — keep this "
         "session's files under it so the project stays organized.",
+        "Note: every terminal command starts in that directory — a `cd` in "
+        "one command does not carry into the next, so use absolute paths or "
+        "chain steps in a single command (`cd sub && make`).",
     ]
     if not backend_is_local():
         lines.append(

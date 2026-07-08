@@ -16335,7 +16335,12 @@ class GatewayRunner(GatewayAuthorizationMixin, GatewayKanbanWatchersMixin, Gatew
             # Sandbox-side artifacts (remote terminal backends) must be
             # fetched to the host before delivery's exists() checks drop
             # them — a project-bound Modal session's figure lives on the
-            # volume, not the host FS.
+            # volume, not the host FS. Blocking fetch is fine HERE: run_sync
+            # executes on the executor thread, never the event loop. The
+            # post-stream delivery path (_deliver_media_from_response) has
+            # its own executor-wrapped rewrite for streamed responses that
+            # bypass this block; after this pass the tags already point at
+            # host copies, so a second pass is a cheap exists()-and-skip.
             if "MEDIA:" in final_response:
                 try:
                     from gateway.media_egress import rewrite_remote_media_tags
