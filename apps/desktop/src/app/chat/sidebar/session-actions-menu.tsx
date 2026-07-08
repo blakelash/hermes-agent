@@ -119,7 +119,11 @@ function MoveToProjectDialog({
 
     void moveSessionToProject(sessionId, slug)
       .then(() => {
-        notify(slug ? r.movedToProject(name) : r.removedFromProject)
+        notify({
+          durationMs: 2_000,
+          kind: 'success',
+          message: slug ? r.movedToProject(name) : r.removedFromProject
+        })
         onOpenChange(false)
       })
       .catch(err => notifyError(err, r.moveToProjectFailed))
