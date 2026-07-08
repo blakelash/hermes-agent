@@ -1,10 +1,9 @@
 """Tests for Modal bulk upload via tar/base64 archive."""
 
-import asyncio
 import base64
 import io
 import tarfile
-from unittest.mock import AsyncMock, MagicMock
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -37,15 +36,17 @@ def _make_mock_stdin():
     stdin.write = mock_write
     stdin.write_eof = MagicMock()
     stdin.drain = MagicMock()
-    stdin.drain.aio = AsyncMock()
     stdin._written_chunks = written_chunks
     return stdin
 
 
-def _wire_async_exec(env, exec_calls=None):
-    """Wire mock sandbox.exec.aio and a real run_coroutine on the env.
+def _wire_exec(env, exec_calls=None, exit_code=0, stderr_text=""):
+    """Wire a BLOCKING mock sandbox.exec and a real worker.run on the env.
 
-    Optionally captures exec call args into *exec_calls* list.
+    Mirrors the post-refactor Modal surface (loop-free blocking SDK):
+    ``sandbox.exec(...)`` returns a proc whose ``wait()``/``stderr.read()``
+    are synchronous, and the upload body runs via ``worker.run(fn, timeout=…)``.
+    Optionally captures exec call args into *exec_calls*.
     Returns (exec_calls, run_kwargs, stdin_mock).
     """
     if exec_calls is None:
@@ -53,29 +54,22 @@ def _wire_async_exec(env, exec_calls=None):
     run_kwargs: dict = {}
     stdin_mock = _make_mock_stdin()
 
-    async def mock_exec_fn(*args, **kwargs):
+    def mock_exec(*args, **kwargs):
         exec_calls.append(args)
         proc = MagicMock()
-        proc.wait = MagicMock()
-        proc.wait.aio = AsyncMock(return_value=0)
+        proc.wait = MagicMock(return_value=exit_code)
         proc.stdin = stdin_mock
         proc.stderr = MagicMock()
-        proc.stderr.read = MagicMock()
-        proc.stderr.read.aio = AsyncMock(return_value="")
+        proc.stderr.read = MagicMock(return_value=stderr_text)
         return proc
 
-    env._sandbox.exec = MagicMock()
-    env._sandbox.exec.aio = mock_exec_fn
+    env._sandbox.exec = mock_exec
 
-    def real_run_coroutine(coro, **kwargs):
+    def real_run(fn, **kwargs):
         run_kwargs.update(kwargs)
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
+        return fn()
 
-    env._worker.run_coroutine = real_run_coroutine
+    env._worker.run = real_run
     return exec_calls, run_kwargs, stdin_mock
 
 
@@ -83,10 +77,10 @@ class TestModalBulkUpload:
     """Test _modal_bulk_upload method."""
 
     def test_empty_files_is_noop(self, monkeypatch, tmp_path):
-        """Empty file list should not call worker.run_coroutine."""
+        """Empty file list should not call worker.run."""
         env = _make_mock_modal_env(monkeypatch, tmp_path)
         env._modal_bulk_upload([])
-        env._worker.run_coroutine.assert_not_called()
+        env._worker.run.assert_not_called()
 
     def test_tar_archive_contains_all_files(self, monkeypatch, tmp_path):
         """The tar archive sent via stdin should contain all files."""
@@ -102,7 +96,7 @@ class TestModalBulkUpload:
             (str(src_b), "/root/.hermes/skills/b.py"),
         ]
 
-        exec_calls, _, stdin_mock = _wire_async_exec(env)
+        exec_calls, _, stdin_mock = _wire_exec(env)
         env._modal_bulk_upload(files)
 
         # Verify the command reads from stdin (no echo with embedded payload)
@@ -146,7 +140,7 @@ class TestModalBulkUpload:
             (str(src), "/root/.hermes/skills/deep/nested/f.txt"),
         ]
 
-        exec_calls, _, _ = _wire_async_exec(env)
+        exec_calls, _, _ = _wire_exec(env)
         env._modal_bulk_upload(files)
 
         cmd = exec_calls[0][2]
@@ -163,7 +157,7 @@ class TestModalBulkUpload:
             src.write_text(f"content_{i}")
             files.append((str(src), f"/root/.hermes/cache/file_{i}.txt"))
 
-        exec_calls, _, _ = _wire_async_exec(env)
+        exec_calls, _, _ = _wire_exec(env)
         env._modal_bulk_upload(files)
 
         # Should be exactly 1 exec call, not 20
@@ -207,7 +201,7 @@ class TestModalBulkUpload:
         src.write_text("data")
         files = [(str(src), "/root/.hermes/f.txt")]
 
-        _, run_kwargs, _ = _wire_async_exec(env)
+        _, run_kwargs, _ = _wire_exec(env)
         env._modal_bulk_upload(files)
 
         assert run_kwargs.get("timeout") == 120
@@ -220,29 +214,7 @@ class TestModalBulkUpload:
         src.write_text("data")
         files = [(str(src), "/root/.hermes/f.txt")]
 
-        stdin_mock = _make_mock_stdin()
-
-        async def mock_exec_fn(*args, **kwargs):
-            proc = MagicMock()
-            proc.wait = MagicMock()
-            proc.wait.aio = AsyncMock(return_value=1)  # non-zero exit
-            proc.stdin = stdin_mock
-            proc.stderr = MagicMock()
-            proc.stderr.read = MagicMock()
-            proc.stderr.read.aio = AsyncMock(return_value="tar: error")
-            return proc
-
-        env._sandbox.exec = MagicMock()
-        env._sandbox.exec.aio = mock_exec_fn
-
-        def real_run_coroutine(coro, **kwargs):
-            loop = asyncio.new_event_loop()
-            try:
-                return loop.run_until_complete(coro)
-            finally:
-                loop.close()
-
-        env._worker.run_coroutine = real_run_coroutine
+        _wire_exec(env, exit_code=1, stderr_text="tar: error")
 
         with pytest.raises(RuntimeError, match="Modal bulk upload failed"):
             env._modal_bulk_upload(files)
@@ -259,7 +231,7 @@ class TestModalBulkUpload:
         src.write_text("some data to upload")
         files = [(str(src), "/root/.hermes/f.txt")]
 
-        exec_calls, _, stdin_mock = _wire_async_exec(env)
+        exec_calls, _, stdin_mock = _wire_exec(env)
         env._modal_bulk_upload(files)
 
         # The command should NOT contain an echo with the payload
@@ -279,7 +251,7 @@ class TestModalBulkUpload:
         src.write_bytes(_os.urandom(1024 * 1024 + 512 * 1024))
         files = [(str(src), "/root/.hermes/large.bin")]
 
-        exec_calls, _, stdin_mock = _wire_async_exec(env)
+        exec_calls, _, stdin_mock = _wire_exec(env)
         env._modal_bulk_upload(files)
 
         # Should have multiple stdin write chunks

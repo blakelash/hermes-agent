@@ -143,23 +143,19 @@ def _install_modal_test_modules(
             registry_calls.append((image, setup_dockerfile_commands))
             return {"kind": "registry", "image": image}
 
-    async def _lookup_aio(_name: str, create_if_missing: bool = False):
-        return types.SimpleNamespace(name="hermes-agent", create_if_missing=create_if_missing)
-
+    # Blocking SDK surface (modal.py drives the sync API from worker threads;
+    # the .aio coroutine shims are gone — see the loop-free refactor).
     class _FakeSandboxInstance:
         def __init__(self, image):
             self.image = image
 
-            async def _snapshot_aio():
-                return types.SimpleNamespace(object_id=snapshot_id)
+        def snapshot_filesystem(self):
+            return types.SimpleNamespace(object_id=snapshot_id)
 
-            async def _terminate_aio():
-                return None
+        def terminate(self):
+            return None
 
-            self.snapshot_filesystem = types.SimpleNamespace(aio=_snapshot_aio)
-            self.terminate = types.SimpleNamespace(aio=_terminate_aio)
-
-    async def _create_aio(*_args, image=None, app=None, timeout=None, **kwargs):
+    def _create(*_args, image=None, app=None, timeout=None, **kwargs):
         create_calls.append({
             "image": image,
             "app": app,
@@ -177,10 +173,14 @@ def _install_modal_test_modules(
             return {"host_path": host_path, "remote_path": remote_path}
 
     class _FakeApp:
-        lookup = types.SimpleNamespace(aio=_lookup_aio)
+        @staticmethod
+        def lookup(_name: str, create_if_missing: bool = False):
+            return types.SimpleNamespace(
+                name="hermes-agent", create_if_missing=create_if_missing
+            )
 
     class _FakeSandbox:
-        create = types.SimpleNamespace(aio=_create_aio)
+        create = staticmethod(_create)
 
     sys.modules["modal"] = types.SimpleNamespace(
         Image=_FakeImage,

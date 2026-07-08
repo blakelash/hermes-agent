@@ -1,9 +1,8 @@
 """Tests for backend-specific bulk download implementations and cleanup() wiring."""
 
-import asyncio
 import subprocess
 from pathlib import Path
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import MagicMock, patch
 
 import pytest
 
@@ -49,33 +48,27 @@ def _make_mock_modal_env():
 
 
 def _wire_modal_download(env, *, tar_bytes=b"fake-tar-data", exit_code=0):
-    """Wire sandbox.exec.aio to return mock tar output for download tests.
+    """Wire a BLOCKING mock sandbox.exec for download tests (loop-free SDK
+    surface: sync ``stdout.read()``/``wait()``, body runs via ``worker.run``).
 
     Returns the exec_calls list for assertion.
     """
     exec_calls = []
 
-    async def mock_exec_fn(*args, **kwargs):
+    def mock_exec(*args, **kwargs):
         exec_calls.append(args)
         proc = MagicMock()
         proc.stdout = MagicMock()
-        proc.stdout.read = MagicMock()
-        proc.stdout.read.aio = AsyncMock(return_value=tar_bytes)
-        proc.wait = MagicMock()
-        proc.wait.aio = AsyncMock(return_value=exit_code)
+        proc.stdout.read = MagicMock(return_value=tar_bytes)
+        proc.wait = MagicMock(return_value=exit_code)
         return proc
 
-    env._sandbox.exec = MagicMock()
-    env._sandbox.exec.aio = mock_exec_fn
+    env._sandbox.exec = mock_exec
 
-    def real_run_coroutine(coro, **kwargs):
-        loop = asyncio.new_event_loop()
-        try:
-            return loop.run_until_complete(coro)
-        finally:
-            loop.close()
+    def real_run(fn, **kwargs):
+        return fn()
 
-    env._worker.run_coroutine = real_run_coroutine
+    env._worker.run = real_run
     return exec_calls
 
 
@@ -286,18 +279,18 @@ class TestModalBulkDownload:
             env._modal_bulk_download(dest)
 
     def test_modal_bulk_download_uses_120s_timeout(self, tmp_path):
-        """run_coroutine should be called with timeout=120."""
+        """worker.run should be called with timeout=120."""
         env = _make_mock_modal_env()
         _wire_modal_download(env, tar_bytes=b"data")
 
         run_kwargs = {}
-        original_run = env._worker.run_coroutine
+        original_run = env._worker.run
 
-        def tracking_run(coro, **kwargs):
+        def tracking_run(fn, **kwargs):
             run_kwargs.update(kwargs)
-            return original_run(coro, **kwargs)
+            return original_run(fn, **kwargs)
 
-        env._worker.run_coroutine = tracking_run
+        env._worker.run = tracking_run
         dest = tmp_path / "backup.tar"
 
         env._modal_bulk_download(dest)
@@ -317,16 +310,10 @@ class TestModalCleanup:
         sync_mgr.sync_back = lambda: call_order.append("sync_back")
         env._sync_manager = sync_mgr
 
-        # Mock terminate to track call order
-        async def mock_terminate():
-            pass
-
-        env._sandbox.terminate = MagicMock()
-        env._sandbox.terminate.aio = mock_terminate
-        env._worker.run_coroutine = lambda coro, **kw: (
-            call_order.append("terminate"),
-            asyncio.new_event_loop().run_until_complete(coro),
-        )
+        # Track terminate ordering through the blocking worker.run surface:
+        # cleanup() terminates via worker.run(lambda: sandbox.terminate()).
+        env._sandbox.terminate = lambda: call_order.append("terminate")
+        env._worker.run = lambda fn, **kw: fn()
         env._worker.stop = lambda: None
 
         env.cleanup()
