@@ -16,12 +16,18 @@ def _make_mock_modal_env(monkeypatch, tmp_path):
     Returns a ModalEnvironment-like object with _sandbox and _worker mocked.
     We don't call __init__ because it requires the Modal SDK.
     """
+    import threading
+
     env = object.__new__(modal_env.ModalEnvironment)
     env._sandbox = MagicMock()
     env._worker = MagicMock()
     env._persistent = False
     env._task_id = "test"
     env._sync_manager = None
+    # recreate-on-death bookkeeping (normally set in __init__)
+    env._sandbox_generation = 0
+    env._recreating = False
+    env._recreate_lock = threading.Lock()
     return env
 
 

@@ -1158,10 +1158,13 @@ def _get_env_config() -> Dict[str, Any]:
         container_cpu = _parse_env_var("TERMINAL_CONTAINER_CPU", "1", float, "number")
         container_memory = _parse_env_var("TERMINAL_CONTAINER_MEMORY", "5120")
         container_disk = _parse_env_var("TERMINAL_CONTAINER_DISK", "51200")
+        # Modal only: sandbox wall-clock lifetime cap (seconds). Default 6h.
+        modal_sandbox_timeout = _parse_env_var("TERMINAL_MODAL_SANDBOX_TIMEOUT", "21600")
     else:
         container_cpu = 1.0
         container_memory = 5120
         container_disk = 51200
+        modal_sandbox_timeout = 21600
 
     if docker_backend:
         docker_forward_env = _parse_env_var("TERMINAL_DOCKER_FORWARD_ENV", "[]", json.loads, "valid JSON")
@@ -1252,6 +1255,7 @@ def _get_env_config() -> Dict[str, Any]:
         "container_memory": container_memory,     # MB (default 5GB)
         "container_disk": container_disk,        # MB (default 50GB)
         "container_persistent": os.getenv("TERMINAL_CONTAINER_PERSISTENT", "true").lower() in {"true", "1", "yes"},
+        "modal_sandbox_timeout": modal_sandbox_timeout,
         "docker_volumes": docker_volumes,
         "modal_volumes": modal_volumes,
         "docker_env": docker_env,
@@ -1356,6 +1360,15 @@ def _create_environment(env_type: str, image: str, cwd: str, timeout: int,
             sandbox_kwargs["cpu"] = cpu
         if memory > 0:
             sandbox_kwargs["memory"] = memory
+        # Sandbox lifetime cap (seconds). Kept high (default 6h) so a
+        # long-running task isn't guillotined mid-run; recreate-on-death in the
+        # modal backend recovers if Modal reaps it anyway.
+        try:
+            modal_sandbox_timeout = int(cc.get("modal_sandbox_timeout", 21600))
+            if modal_sandbox_timeout > 0:
+                sandbox_kwargs["timeout"] = modal_sandbox_timeout
+        except (TypeError, ValueError):
+            pass
         if disk > 0:
             try:
                 import inspect, modal

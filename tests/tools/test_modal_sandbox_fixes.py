@@ -290,3 +290,165 @@ class TestHostPrefixList:
                 f"Host prefix {prefix!r} not found in _get_env_config. "
                 "Container backends need this to avoid using host paths."
             )
+
+
+# =========================================================================
+# Test 9: Sandbox lifetime cap is configurable and threads through
+# =========================================================================
+
+class TestModalSandboxTimeout:
+    """Modal's hard sandbox lifetime cap must be configurable, not a fixed 1h."""
+
+    def test_default_timeout_in_config(self, monkeypatch):
+        monkeypatch.setenv("TERMINAL_ENV", "modal")
+        monkeypatch.delenv("TERMINAL_MODAL_SANDBOX_TIMEOUT", raising=False)
+        config = _tt_mod._get_env_config()
+        assert config["modal_sandbox_timeout"] == 21600
+
+    def test_timeout_override_from_env(self, monkeypatch):
+        monkeypatch.setenv("TERMINAL_ENV", "modal")
+        monkeypatch.setenv("TERMINAL_MODAL_SANDBOX_TIMEOUT", "7200")
+        config = _tt_mod._get_env_config()
+        assert config["modal_sandbox_timeout"] == 7200
+
+    def test_timeout_reaches_sandbox_kwargs(self, monkeypatch):
+        """_create_environment must pass the configured cap into Sandbox.create kwargs."""
+        captured = {}
+
+        def _fake_modal_env(**kwargs):
+            captured.update(kwargs)
+            return object()
+
+        monkeypatch.setattr(_tt_mod, "_ModalEnvironment", _fake_modal_env)
+        monkeypatch.setattr(
+            _tt_mod, "_get_modal_backend_state",
+            lambda mode: {"selected_backend": "direct"},
+        )
+
+        _tt_mod._create_environment(
+            env_type="modal",
+            image="python:3.11",
+            cwd="/root",
+            timeout=60,
+            container_config={
+                "container_cpu": 1,
+                "container_memory": 5120,
+                "container_disk": 0,
+                "modal_sandbox_timeout": 12345,
+            },
+        )
+        assert captured["modal_sandbox_kwargs"]["timeout"] == 12345
+
+
+# =========================================================================
+# Test 10: Recreate-on-death — a reaped sandbox is rebuilt, not left dead
+# =========================================================================
+
+class TestRecreateOnDeath:
+    """When Modal reaps a sandbox mid-session, the next op rebuilds it."""
+
+    def _make_env(self):
+        import threading
+        from tools.environments.modal import ModalEnvironment
+
+        env = ModalEnvironment.__new__(ModalEnvironment)
+        env._task_id = "t"
+        env._persistent = False
+        env._recreating = False
+        env._sandbox_generation = 0
+        env._recreate_lock = threading.Lock()
+        env._sync_manager = None
+
+        class _Worker:
+            def run(self, fn, timeout=None):
+                return fn()
+
+        env._worker = _Worker()
+        return env
+
+    def test_dead_error_detection(self):
+        from tools.environments.modal import _is_sandbox_dead_error
+
+        modal_msg = (
+            "Modal Sandbox with container ID ta-01ABC not found. "
+            "This means this Sandbox has already shut down."
+        )
+        assert _is_sandbox_dead_error(RuntimeError(modal_msg))
+        assert _is_sandbox_dead_error(Exception("Sandbox has terminated"))
+        assert not _is_sandbox_dead_error(RuntimeError("compilation error: undefined symbol"))
+
+    def test_recreates_and_retries_once(self, monkeypatch):
+        env = self._make_env()
+        rebuilt = {"count": 0}
+        monkeypatch.setattr(
+            env, "_provision_sandbox",
+            lambda: rebuilt.__setitem__("count", rebuilt["count"] + 1),
+        )
+        monkeypatch.setattr(env, "init_session", lambda: None)
+
+        attempts = {"n": 0}
+
+        def op():
+            attempts["n"] += 1
+            if attempts["n"] == 1:
+                raise RuntimeError(
+                    "Modal Sandbox with container ID ta-01ABC not found. "
+                    "This means this Sandbox has already shut down."
+                )
+            return "ok"
+
+        result = env._run_on_worker(op, timeout=5, op_label="exec")
+        assert result == "ok"
+        assert attempts["n"] == 2          # failed once, retried once
+        assert rebuilt["count"] == 1       # rebuilt exactly once
+        assert env._sandbox_generation == 1
+
+    def test_non_death_error_is_not_recovered(self, monkeypatch):
+        env = self._make_env()
+        rebuilt = {"count": 0}
+        monkeypatch.setattr(
+            env, "_provision_sandbox",
+            lambda: rebuilt.__setitem__("count", rebuilt["count"] + 1),
+        )
+
+        def op():
+            raise RuntimeError("compilation error")
+
+        with pytest.raises(RuntimeError, match="compilation error"):
+            env._run_on_worker(op, timeout=5, op_label="exec")
+        assert rebuilt["count"] == 0       # a real command failure is not a rebuild trigger
+
+    def test_no_reentrant_recreate_while_rebuilding(self, monkeypatch):
+        """A dead-sandbox error raised during a rebuild's own resync must not recurse."""
+        env = self._make_env()
+        env._recreating = True
+        rebuilt = {"count": 0}
+        monkeypatch.setattr(
+            env, "_provision_sandbox",
+            lambda: rebuilt.__setitem__("count", rebuilt["count"] + 1),
+        )
+
+        def op():
+            raise RuntimeError("Sandbox has terminated")
+
+        with pytest.raises(RuntimeError, match="terminated"):
+            env._run_on_worker(op, timeout=5, op_label="upload")
+        assert rebuilt["count"] == 0
+
+    def test_concurrent_callers_rebuild_once(self, monkeypatch):
+        """A caller holding a stale generation must not trigger a second rebuild."""
+        env = self._make_env()
+        rebuilt = {"count": 0}
+        monkeypatch.setattr(
+            env, "_provision_sandbox",
+            lambda: rebuilt.__setitem__("count", rebuilt["count"] + 1),
+        )
+        monkeypatch.setattr(env, "init_session", lambda: None)
+
+        # First caller observed generation 0 and rebuilds -> generation 1.
+        env._ensure_live_sandbox(dead_generation=0)
+        assert rebuilt["count"] == 1
+        # Second caller also saw the same dead handle (generation 0); the
+        # generation has already advanced, so it must be a no-op.
+        env._ensure_live_sandbox(dead_generation=0)
+        assert rebuilt["count"] == 1

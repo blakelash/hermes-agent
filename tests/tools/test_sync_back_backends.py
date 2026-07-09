@@ -38,12 +38,18 @@ def ssh_mock_env(monkeypatch):
 
 def _make_mock_modal_env():
     """Create a minimal ModalEnvironment without calling __init__."""
+    import threading
+
     env = object.__new__(modal_env.ModalEnvironment)
     env._sandbox = MagicMock()
     env._worker = MagicMock()
     env._persistent = False
     env._task_id = "test"
     env._sync_manager = None
+    # recreate-on-death bookkeeping (normally set in __init__)
+    env._sandbox_generation = 0
+    env._recreating = False
+    env._recreate_lock = threading.Lock()
     return env
 
 
