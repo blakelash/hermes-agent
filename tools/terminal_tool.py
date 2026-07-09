@@ -2292,6 +2292,7 @@ def terminal_tool(
                                 "container_memory": config.get("container_memory", 5120),
                                 "container_disk": config.get("container_disk", 51200),
                                 "container_persistent": config.get("container_persistent", True),
+                                "modal_sandbox_timeout": config.get("modal_sandbox_timeout", 21600),
                                 "modal_mode": config.get("modal_mode", "auto"),
                                 "docker_volumes": config.get("docker_volumes", []),
                                 "modal_volumes": config.get("modal_volumes", []),

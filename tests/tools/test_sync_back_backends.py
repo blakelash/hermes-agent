@@ -49,6 +49,7 @@ def _make_mock_modal_env():
     # recreate-on-death bookkeeping (normally set in __init__)
     env._sandbox_generation = 0
     env._recreating = False
+    env._tearing_down = False
     env._recreate_lock = threading.Lock()
     return env
 

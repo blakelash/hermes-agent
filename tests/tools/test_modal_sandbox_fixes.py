@@ -339,6 +339,39 @@ class TestModalSandboxTimeout:
         )
         assert captured["modal_sandbox_kwargs"]["timeout"] == 12345
 
+    def test_every_container_config_builder_threads_the_timeout(self):
+        """Regression: the caller-side container_config dict dropped this key.
+
+        _create_environment reads cc.get('modal_sandbox_timeout'), so a builder
+        that omits it silently pins the sandbox to the default no matter what
+        the user configured. Every container_config builder that carries
+        container_cpu must also carry modal_sandbox_timeout.
+        """
+        import re
+
+        builders = [
+            ("tools/terminal_tool.py", _tt_mod),
+        ]
+        # code_execution_tool and file_tools build their own container_config too.
+        import tools.code_execution_tool as _cet
+        import tools.file_tools as _ft
+        builders += [
+            ("tools/code_execution_tool.py", _cet),
+            ("tools/file_tools.py", _ft),
+        ]
+
+        for label, module in builders:
+            source = Path(module.__file__).read_text(encoding="utf-8")
+            # Each `container_config = { ... }` literal that configures a
+            # container backend (marked by container_cpu) must include the cap.
+            for block in re.findall(r"container_config\s*=\s*\{.*?\}", source, re.DOTALL):
+                if "container_cpu" in block:
+                    assert "modal_sandbox_timeout" in block, (
+                        f"{label}: a container_config builder omits "
+                        "modal_sandbox_timeout, so the configured Modal sandbox "
+                        "lifetime cap is silently dropped for that path."
+                    )
+
 
 # =========================================================================
 # Test 10: Recreate-on-death — a reaped sandbox is rebuilt, not left dead
@@ -355,6 +388,7 @@ class TestRecreateOnDeath:
         env._task_id = "t"
         env._persistent = False
         env._recreating = False
+        env._tearing_down = False
         env._sandbox_generation = 0
         env._recreate_lock = threading.Lock()
         env._sync_manager = None
@@ -376,6 +410,26 @@ class TestRecreateOnDeath:
         assert _is_sandbox_dead_error(RuntimeError(modal_msg))
         assert _is_sandbox_dead_error(Exception("Sandbox has terminated"))
         assert not _is_sandbox_dead_error(RuntimeError("compilation error: undefined symbol"))
+
+    def test_dead_error_detection_does_not_match_guest_not_found(self):
+        """A guest 'not found' in an op's own error text must NOT look like a dead sandbox.
+
+        _modal_bulk_upload raises RuntimeError with the guest's stderr embedded;
+        a bare 'not found' there would otherwise trigger a spurious rebuild+retry.
+        """
+        from tools.environments.modal import _is_sandbox_dead_error
+
+        assert not _is_sandbox_dead_error(
+            RuntimeError("Modal bulk upload failed (exit 127): bash: foo: command not found")
+        )
+        assert not _is_sandbox_dead_error(
+            RuntimeError("cp: cannot stat '/x': No such file or directory: not found")
+        )
+        # But the real Modal reaped-sandbox message (scoped by 'sandbox'/'container id')
+        # must still be recognized.
+        assert _is_sandbox_dead_error(
+            RuntimeError("Sandbox with container ID ta-01ABC not found.")
+        )
 
     def test_recreates_and_retries_once(self, monkeypatch):
         env = self._make_env()
@@ -433,6 +487,23 @@ class TestRecreateOnDeath:
 
         with pytest.raises(RuntimeError, match="terminated"):
             env._run_on_worker(op, timeout=5, op_label="upload")
+        assert rebuilt["count"] == 0
+
+    def test_no_rebuild_during_teardown(self, monkeypatch):
+        """cleanup()'s sync_back on a dead sandbox must fail fast, not rebuild."""
+        env = self._make_env()
+        env._tearing_down = True
+        rebuilt = {"count": 0}
+        monkeypatch.setattr(
+            env, "_provision_sandbox",
+            lambda: rebuilt.__setitem__("count", rebuilt["count"] + 1),
+        )
+
+        def op():
+            raise RuntimeError("Sandbox with container ID ta-01ABC not found.")
+
+        with pytest.raises(RuntimeError, match="not found"):
+            env._run_on_worker(op, timeout=5, op_label="bulk_download")
         assert rebuilt["count"] == 0
 
     def test_concurrent_callers_rebuild_once(self, monkeypatch):

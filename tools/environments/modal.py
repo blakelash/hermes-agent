@@ -61,14 +61,26 @@ _SANDBOX_DEAD_MARKERS = (
     "has already shut down",
     "has terminated",
     "sandbox has finished",
-    "not found",
 )
+
+# Some SDK versions surface a reaped sandbox only as "... not found". That
+# phrase is too generic to trust on its own — a guest "command not found" or
+# "No such file ... not found" gets embedded in an op's own RuntimeError text
+# (e.g. the bulk-upload failure message) and would trigger a spurious rebuild +
+# retry for a deterministic command failure. Require a sandbox-scoping token
+# alongside it (the concrete Modal message is "Modal Sandbox with container ID
+# ta-... not found. This means this Sandbox has already shut down.").
+_SANDBOX_NOT_FOUND_SCOPES = ("sandbox", "container id")
 
 
 def _is_sandbox_dead_error(exc: BaseException) -> bool:
     """Return True if *exc* indicates the sandbox no longer exists server-side."""
     message = str(exc).lower()
-    return any(marker in message for marker in _SANDBOX_DEAD_MARKERS)
+    if any(marker in message for marker in _SANDBOX_DEAD_MARKERS):
+        return True
+    return "not found" in message and any(
+        scope in message for scope in _SANDBOX_NOT_FOUND_SCOPES
+    )
 
 
 def _collect_passthrough_env() -> dict[str, str]:
@@ -256,6 +268,7 @@ class ModalEnvironment(BaseEnvironment):
         self._sandbox_generation = 0
         self._recreate_lock = threading.Lock()
         self._recreating = False
+        self._tearing_down = False
 
         self._image = image
         self._sandbox_kwargs = dict(modal_sandbox_kwargs or {})
@@ -458,10 +471,14 @@ class ModalEnvironment(BaseEnvironment):
             self._recreating = True
             try:
                 self._provision_sandbox()
-                self._sandbox_generation += 1
                 if self._sync_manager is not None:
                     self._sync_manager.sync(force=True)
                 self.init_session()
+                # Bump the generation only once the rebuild is fully complete.
+                # If provision/sync/init raises, the generation stays put so a
+                # subsequent caller re-attempts the rebuild rather than treating
+                # a half-built sandbox as ready.
+                self._sandbox_generation += 1
                 logger.info(
                     "Modal: recreated sandbox on demand (task=%s, generation=%d)",
                     self._task_id, self._sandbox_generation,
@@ -481,9 +498,10 @@ class ModalEnvironment(BaseEnvironment):
         try:
             return self._worker.run(fn, timeout=timeout)
         except Exception as exc:
-            # Don't attempt a rebuild from inside a rebuild's own resync, and
-            # only rebuild for errors that actually mean "sandbox is gone".
-            if self._recreating or not _is_sandbox_dead_error(exc):
+            # Don't attempt a rebuild from inside a rebuild's own resync, nor
+            # during teardown (a rebuild just to snapshot-and-terminate is
+            # wasted), and only for errors that actually mean "sandbox is gone".
+            if self._recreating or self._tearing_down or not _is_sandbox_dead_error(exc):
                 raise
             logger.warning(
                 "Modal: sandbox for task %s died mid-%s (%s); recreating on demand",
@@ -649,6 +667,11 @@ class ModalEnvironment(BaseEnvironment):
         """Snapshot the filesystem (if persistent) then stop the sandbox."""
         if self._sandbox is None:
             return
+
+        # We're tearing down: if the sandbox is already dead, sync_back should
+        # fail fast (FileSyncManager already retries+logs), not trigger a
+        # recreate-on-death rebuild just to snapshot-and-terminate it.
+        self._tearing_down = True
 
         if self._sync_manager:
             logger.info("Modal: syncing files from sandbox...")
