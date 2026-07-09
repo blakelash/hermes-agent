@@ -1086,6 +1086,14 @@ DEFAULT_CONFIG = {
         "container_memory": 5120,       # MB (default 5GB)
         "container_disk": 51200,        # MB (default 50GB)
         "container_persistent": True,   # Persist filesystem across sessions
+        # Modal only: max wall-clock lifetime (seconds) of a sandbox. This is
+        # Modal's own hard cap — it terminates the sandbox once exceeded, no
+        # matter what Hermes thinks. Idle sandboxes are still reaped early by
+        # lifetime_seconds; this only bounds sandboxes kept alive by a running
+        # background job, so it must be >= your longest expected task. Default
+        # 6h. Modal reaping a sandbox mid-session is now recovered by rebuilding
+        # it on demand, but a background process running past this cap still dies.
+        "modal_sandbox_timeout": 21600,
         # Docker volume mounts — share host directories with the container.
         # Each entry is "host_path:container_path" (standard Docker -v syntax).
         # Example:
@@ -5755,6 +5763,7 @@ TERMINAL_CONFIG_ENV_MAP = {
     "container_memory": "TERMINAL_CONTAINER_MEMORY",
     "container_disk": "TERMINAL_CONTAINER_DISK",
     "container_persistent": "TERMINAL_CONTAINER_PERSISTENT",
+    "modal_sandbox_timeout": "TERMINAL_MODAL_SANDBOX_TIMEOUT",
     "docker_volumes": "TERMINAL_DOCKER_VOLUMES",
     "modal_volumes": "TERMINAL_MODAL_VOLUMES",
     "docker_env": "TERMINAL_DOCKER_ENV",

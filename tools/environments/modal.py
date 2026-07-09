@@ -19,6 +19,7 @@ import logging
 import os
 import shlex
 import tarfile
+import threading
 from pathlib import Path
 from typing import Any, Optional
 
@@ -41,6 +42,45 @@ logger = logging.getLogger(__name__)
 
 _SNAPSHOT_STORE = get_hermes_home() / "modal_snapshots.json"
 _DIRECT_SNAPSHOT_NAMESPACE = "direct"
+
+# Fallback max wall-clock lifetime (seconds) for a sandbox when the caller
+# doesn't pass one. This is Modal's own hard cap: Modal terminates the sandbox
+# once it's exceeded, regardless of what Hermes thinks. It only bites sandboxes
+# that Hermes deliberately keeps alive (a live background process refreshes the
+# idle-reaper's activity clock, so the reaper skips them) — an idle sandbox is
+# still torn down early by terminal.lifetime_seconds. Keep this generous so a
+# long-running task isn't guillotined mid-run; recreate-on-death (below) covers
+# the case where it dies anyway.
+_DEFAULT_SANDBOX_TIMEOUT = 21_600  # 6 hours
+
+# Substrings that mark a Modal error as "the sandbox is gone" (reaped after
+# exceeding its lifetime cap, evicted, or otherwise terminated server-side).
+# Matched case-insensitively against the exception text because the concrete
+# Modal exception types have shifted across SDK versions.
+_SANDBOX_DEAD_MARKERS = (
+    "has already shut down",
+    "has terminated",
+    "sandbox has finished",
+)
+
+# Some SDK versions surface a reaped sandbox only as "... not found". That
+# phrase is too generic to trust on its own — a guest "command not found" or
+# "No such file ... not found" gets embedded in an op's own RuntimeError text
+# (e.g. the bulk-upload failure message) and would trigger a spurious rebuild +
+# retry for a deterministic command failure. Require a sandbox-scoping token
+# alongside it (the concrete Modal message is "Modal Sandbox with container ID
+# ta-... not found. This means this Sandbox has already shut down.").
+_SANDBOX_NOT_FOUND_SCOPES = ("sandbox", "container id")
+
+
+def _is_sandbox_dead_error(exc: BaseException) -> bool:
+    """Return True if *exc* indicates the sandbox no longer exists server-side."""
+    message = str(exc).lower()
+    if any(marker in message for marker in _SANDBOX_DEAD_MARKERS):
+        return True
+    return "not found" in message and any(
+        scope in message for scope in _SANDBOX_NOT_FOUND_SCOPES
+    )
 
 
 def _collect_passthrough_env() -> dict[str, str]:
@@ -218,7 +258,20 @@ class ModalEnvironment(BaseEnvironment):
         self._sync_manager: FileSyncManager | None = None  # initialized after sandbox creation
         self._modal_volumes = list(modal_volumes or [])
 
-        sandbox_kwargs = dict(modal_sandbox_kwargs or {})
+        # Recreate-on-death bookkeeping. When Modal reaps a sandbox out from
+        # under us (e.g. it exceeded its lifetime cap while a background job kept
+        # it alive), the next exec/file op transparently rebuilds it instead of
+        # bricking every subsequent terminal/file call. The generation counter
+        # lets concurrent callers that grabbed the same dead handle skip a
+        # redundant rebuild, and _recreating guards against re-entrant rebuilds
+        # from the resync that a rebuild itself performs.
+        self._sandbox_generation = 0
+        self._recreate_lock = threading.Lock()
+        self._recreating = False
+        self._tearing_down = False
+
+        self._image = image
+        self._sandbox_kwargs = dict(modal_sandbox_kwargs or {})
 
         restored_snapshot_id = None
         restored_from_legacy_key = False
@@ -228,6 +281,8 @@ class ModalEnvironment(BaseEnvironment):
             )
             if restored_snapshot_id:
                 logger.info("Modal: restoring from snapshot %s", restored_snapshot_id[:20])
+        self._restored_snapshot_id = restored_snapshot_id
+        self._restored_from_legacy_key = restored_from_legacy_key
 
         _ensure_modal_sdk()
         import modal as _modal
@@ -275,8 +330,9 @@ class ModalEnvironment(BaseEnvironment):
         # Persistent Modal Volumes (durable storage for scientific work).
         # Volumes live independently of the sandbox: they survive teardown and
         # are NOT captured by snapshot_filesystem() on cleanup — that's the
-        # point. Because _create_sandbox() mounts them on every create (base
-        # image *and* snapshot restore), they re-attach on every session.
+        # point. Because _provision_sandbox() mounts them on every create (base
+        # image *and* snapshot restore, including recreate-on-death), they
+        # re-attach on every session.
         volume_mounts: dict[str, Any] = {}
         for vol in self._modal_volumes:
             try:
@@ -300,57 +356,15 @@ class ModalEnvironment(BaseEnvironment):
                     vol.get("name"), vol.get("mount_path"), e,
                 )
 
-        def _create_sandbox(image_spec: Any):
-            app = _modal.App.lookup("hermes-agent", create_if_missing=True)
-            create_kwargs = dict(sandbox_kwargs)
-            if cred_mounts:
-                existing_mounts = list(create_kwargs.pop("mounts", []))
-                existing_mounts.extend(cred_mounts)
-                create_kwargs["mounts"] = existing_mounts
-            if forwarded_env:
-                existing_secrets = list(create_kwargs.pop("secrets", []))
-                existing_secrets.append(_modal.Secret.from_dict(forwarded_env))
-                create_kwargs["secrets"] = existing_secrets
-            if volume_mounts:
-                merged_volumes = dict(create_kwargs.pop("volumes", {}) or {})
-                merged_volumes.update(volume_mounts)
-                create_kwargs["volumes"] = merged_volumes
-            sandbox = _modal.Sandbox.create(
-                "sleep", "infinity",
-                image=image_spec,
-                app=app,
-                timeout=int(create_kwargs.pop("timeout", 3600)),
-                **create_kwargs,
-            )
-            return app, sandbox
+        self._cred_mounts = cred_mounts
+        self._forwarded_env = forwarded_env
+        self._volume_mounts = volume_mounts
 
         try:
-            target_image_spec = restored_snapshot_id or image
-            try:
-                effective_image = _resolve_modal_image(target_image_spec)
-                self._app, self._sandbox = self._worker.run(
-                    lambda: _create_sandbox(effective_image), timeout=300,
-                )
-            except Exception as exc:
-                if not restored_snapshot_id:
-                    raise
-                logger.warning(
-                    "Modal: failed to restore snapshot %s, retrying with base image: %s",
-                    restored_snapshot_id[:20], exc,
-                )
-                _delete_direct_snapshot(self._task_id, restored_snapshot_id)
-                base_image = _resolve_modal_image(image)
-                self._app, self._sandbox = self._worker.run(
-                    lambda: _create_sandbox(base_image), timeout=300,
-                )
-            else:
-                if restored_snapshot_id and restored_from_legacy_key:
-                    _store_direct_snapshot(self._task_id, restored_snapshot_id)
+            self._provision_sandbox()
         except Exception:
             self._worker.stop()
             raise
-
-        logger.info("Modal: sandbox created (task=%s)", self._task_id)
 
         self._sync_manager = FileSyncManager(
             get_files_fn=lambda: iter_sync_files("/root/.hermes"),
@@ -361,6 +375,140 @@ class ModalEnvironment(BaseEnvironment):
         )
         self._sync_manager.sync(force=True)
         self.init_session()
+
+    # ------------------------------------------------------------------
+    # Sandbox provisioning / recreate-on-death
+    # ------------------------------------------------------------------
+
+    def _provision_sandbox(self) -> None:
+        """Create the Modal sandbox and set ``self._app`` / ``self._sandbox``.
+
+        Reused by ``__init__`` and by ``_ensure_live_sandbox()`` so a sandbox
+        Modal reaps mid-session can be rebuilt on demand. Reads the mounts,
+        secrets, and volumes prepared once in ``__init__`` from ``self`` so a
+        rebuild re-attaches the same credentials and Volumes.
+        """
+        _ensure_modal_sdk()
+        import modal as _modal
+
+        restored_snapshot_id = self._restored_snapshot_id if self._persistent else None
+        restored_from_legacy_key = self._restored_from_legacy_key
+
+        def _create_sandbox(image_spec: Any):
+            app = _modal.App.lookup("hermes-agent", create_if_missing=True)
+            create_kwargs = dict(self._sandbox_kwargs)
+            if self._cred_mounts:
+                existing_mounts = list(create_kwargs.pop("mounts", []))
+                existing_mounts.extend(self._cred_mounts)
+                create_kwargs["mounts"] = existing_mounts
+            if self._forwarded_env:
+                existing_secrets = list(create_kwargs.pop("secrets", []))
+                existing_secrets.append(_modal.Secret.from_dict(self._forwarded_env))
+                create_kwargs["secrets"] = existing_secrets
+            if self._volume_mounts:
+                merged_volumes = dict(create_kwargs.pop("volumes", {}) or {})
+                merged_volumes.update(self._volume_mounts)
+                create_kwargs["volumes"] = merged_volumes
+            sandbox = _modal.Sandbox.create(
+                "sleep", "infinity",
+                image=image_spec,
+                app=app,
+                timeout=int(create_kwargs.pop("timeout", _DEFAULT_SANDBOX_TIMEOUT)),
+                **create_kwargs,
+            )
+            return app, sandbox
+
+        try:
+            target_image_spec = restored_snapshot_id or self._image
+            effective_image = _resolve_modal_image(target_image_spec)
+            self._app, self._sandbox = self._worker.run(
+                lambda: _create_sandbox(effective_image), timeout=300,
+            )
+        except Exception as exc:
+            if not restored_snapshot_id:
+                raise
+            logger.warning(
+                "Modal: failed to restore snapshot %s, retrying with base image: %s",
+                restored_snapshot_id[:20], exc,
+            )
+            _delete_direct_snapshot(self._task_id, restored_snapshot_id)
+            # Don't keep trying to restore a snapshot that just failed — the
+            # base image is now the target for this and any future rebuild.
+            self._restored_snapshot_id = None
+            base_image = _resolve_modal_image(self._image)
+            self._app, self._sandbox = self._worker.run(
+                lambda: _create_sandbox(base_image), timeout=300,
+            )
+        else:
+            if restored_snapshot_id and restored_from_legacy_key:
+                _store_direct_snapshot(self._task_id, restored_snapshot_id)
+
+        logger.info("Modal: sandbox created (task=%s)", self._task_id)
+
+    def _ensure_live_sandbox(self, dead_generation: int) -> None:
+        """Rebuild the sandbox after Modal reaped it, unless a peer already did.
+
+        *dead_generation* is the generation the caller was using when it hit a
+        dead-sandbox error; if the live generation has already moved past it,
+        another thread rebuilt in the meantime and we do nothing.
+        """
+        with self._recreate_lock:
+            if self._sandbox_generation != dead_generation:
+                return  # A concurrent caller already rebuilt the sandbox.
+
+            # Prefer the most recent snapshot so the rebuilt sandbox comes back
+            # as close as possible to the pre-death filesystem. Anything written
+            # since that snapshot is gone — that's inherent to losing the
+            # sandbox; durable data belongs on a mounted Volume, which re-attaches.
+            if self._persistent:
+                restored_id, restored_legacy = _get_snapshot_restore_candidate(
+                    self._task_id
+                )
+                if restored_id:
+                    self._restored_snapshot_id = restored_id
+                    self._restored_from_legacy_key = restored_legacy
+
+            self._recreating = True
+            try:
+                self._provision_sandbox()
+                if self._sync_manager is not None:
+                    self._sync_manager.sync(force=True)
+                self.init_session()
+                # Bump the generation only once the rebuild is fully complete.
+                # If provision/sync/init raises, the generation stays put so a
+                # subsequent caller re-attempts the rebuild rather than treating
+                # a half-built sandbox as ready.
+                self._sandbox_generation += 1
+                logger.info(
+                    "Modal: recreated sandbox on demand (task=%s, generation=%d)",
+                    self._task_id, self._sandbox_generation,
+                )
+            finally:
+                self._recreating = False
+
+    def _run_on_worker(self, fn, *, timeout: int, op_label: str):
+        """Run *fn* on the worker, rebuilding a dead sandbox once and retrying.
+
+        Modal can terminate a sandbox out from under us (lifetime cap, eviction).
+        Without this, every subsequent exec/file op — and any retry — hits the
+        dead handle and fails identically, bricking the terminal for the rest of
+        the session. Here we detect that, rebuild on demand, and retry once.
+        """
+        generation = self._sandbox_generation
+        try:
+            return self._worker.run(fn, timeout=timeout)
+        except Exception as exc:
+            # Don't attempt a rebuild from inside a rebuild's own resync, nor
+            # during teardown (a rebuild just to snapshot-and-terminate is
+            # wasted), and only for errors that actually mean "sandbox is gone".
+            if self._recreating or self._tearing_down or not _is_sandbox_dead_error(exc):
+                raise
+            logger.warning(
+                "Modal: sandbox for task %s died mid-%s (%s); recreating on demand",
+                self._task_id, op_label, exc,
+            )
+            self._ensure_live_sandbox(dead_generation=generation)
+            return self._worker.run(fn, timeout=timeout)
 
     def _modal_upload(self, host_path: str, remote_path: str) -> None:
         """Upload a single file via base64 piped through stdin."""
@@ -384,7 +532,7 @@ class ModalEnvironment(BaseEnvironment):
             proc.stdin.drain()
             proc.wait()
 
-        self._worker.run(_write, timeout=30)
+        self._run_on_worker(_write, timeout=30, op_label="upload")
 
     # Modal SDK stdin buffer limit (legacy server path).  The command-router
     # path allows 16 MB, but we must stay under the smaller 2 MB cap for
@@ -434,7 +582,7 @@ class ModalEnvironment(BaseEnvironment):
                     f"Modal bulk upload failed (exit {exit_code}): {stderr_text}"
                 )
 
-        self._worker.run(_bulk, timeout=120)
+        self._run_on_worker(_bulk, timeout=120, op_label="bulk_upload")
 
     def _modal_bulk_download(self, dest: Path) -> None:
         """Download remote .hermes/ as a tar archive.
@@ -452,7 +600,7 @@ class ModalEnvironment(BaseEnvironment):
                 raise RuntimeError(f"Modal bulk download failed (exit {exit_code})")
             return data
 
-        tar_bytes = self._worker.run(_download, timeout=120)
+        tar_bytes = self._run_on_worker(_download, timeout=120, op_label="bulk_download")
         if isinstance(tar_bytes, str):
             tar_bytes = tar_bytes.encode()
         dest.write_bytes(tar_bytes)
@@ -465,7 +613,7 @@ class ModalEnvironment(BaseEnvironment):
             proc = self._sandbox.exec("bash", "-c", rm_cmd)
             proc.wait()
 
-        self._worker.run(_rm, timeout=15)
+        self._run_on_worker(_rm, timeout=15, op_label="delete")
 
     def _before_execute(self) -> None:
         """Sync files to sandbox via FileSyncManager (rate-limited internally)."""
@@ -479,13 +627,15 @@ class ModalEnvironment(BaseEnvironment):
                   timeout: int = 120,
                   stdin_data: str | None = None):
         """Return a _ThreadedProcessHandle wrapping a blocking Modal sandbox exec."""
-        sandbox = self._sandbox
         worker = self._worker
 
         def cancel():
             # Runs on a separate pool thread so it can interrupt an in-flight
-            # exec rather than queueing behind it.
-            worker.run(lambda: sandbox.terminate(), timeout=15)
+            # exec rather than queueing behind it. Read self._sandbox live so a
+            # recreate-on-death rebuild is picked up rather than a stale handle.
+            sandbox = self._sandbox
+            if sandbox is not None:
+                worker.run(lambda: sandbox.terminate(), timeout=15)
 
         def exec_fn() -> tuple[str, int]:
             def _do():
@@ -494,7 +644,9 @@ class ModalEnvironment(BaseEnvironment):
                     args.extend(["-l", "-c", cmd_string])
                 else:
                     args.extend(["-c", cmd_string])
-                process = sandbox.exec(*args, timeout=timeout)
+                # Read self._sandbox at call time so a retry after a rebuild
+                # runs against the fresh sandbox, not the terminated one.
+                process = self._sandbox.exec(*args, timeout=timeout)
                 stdout = process.stdout.read()
                 stderr = process.stderr.read()
                 exit_code = process.wait()
@@ -507,7 +659,7 @@ class ModalEnvironment(BaseEnvironment):
                     output = f"{stdout}\n{stderr}" if stdout else stderr
                 return output, exit_code
 
-            return worker.run(_do, timeout=timeout + 30)
+            return self._run_on_worker(_do, timeout=timeout + 30, op_label="exec")
 
         return _ThreadedProcessHandle(exec_fn, cancel_fn=cancel)
 
@@ -515,6 +667,11 @@ class ModalEnvironment(BaseEnvironment):
         """Snapshot the filesystem (if persistent) then stop the sandbox."""
         if self._sandbox is None:
             return
+
+        # We're tearing down: if the sandbox is already dead, sync_back should
+        # fail fast (FileSyncManager already retries+logs), not trigger a
+        # recreate-on-death rebuild just to snapshot-and-terminate it.
+        self._tearing_down = True
 
         if self._sync_manager:
             logger.info("Modal: syncing files from sandbox...")
