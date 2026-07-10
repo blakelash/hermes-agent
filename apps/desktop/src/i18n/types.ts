@@ -940,6 +940,11 @@ export interface Translations {
     shiftClickHint: string
     noWorkspace: string
     unassigned: string
+    newProject: string
+    newProjectDesc: string
+    newProjectPlaceholder: string
+    newProjectCreated: (name: string) => string
+    newProjectFailed: string
     newSessionIn: (label: string) => string
     reorderWorkspace: (label: string) => string
     showMoreIn: (count: number, label: string) => string
