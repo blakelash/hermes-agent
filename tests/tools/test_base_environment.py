@@ -137,7 +137,9 @@ class TestEmbedStdinHeredoc:
     def test_heredoc_format(self):
         result = BaseEnvironment._embed_stdin_heredoc("cat", "hello world")
 
-        assert result.startswith("cat << '")
+        # Command is wrapped in a brace group so the heredoc feeds the whole
+        # command's stdin, not just its last simple command.
+        assert result.startswith("{ cat\n} << '")
         assert "hello world" in result
         assert "HERMES_STDIN_" in result
 
@@ -149,6 +151,72 @@ class TestEmbedStdinHeredoc:
         d1 = r1.split("'")[1]
         d2 = r2.split("'")[1]
         assert d1 != d2  # UUID-based, should be unique
+
+    def test_heredoc_feeds_stdin_reader_that_is_not_last_command(self, tmp_path):
+        """Regression: content must reach a `cat` that isn't the final command.
+
+        The atomic-write script runs `cat > tmp; mv …; trap - EXIT`, so `cat`
+        is mid-script. A bare `cmd << EOF` binds the heredoc to `trap`, losing
+        the content (empty file) and blocking `cat` on unfed stdin (hang). The
+        brace-group wrapping must route the heredoc to `cat`.
+        """
+        import subprocess
+
+        target = tmp_path / "out.txt"
+        content = "# Hello 'quoted' & $VAR\nsecond line"
+        # Compound command with the stdin reader in the middle, mirroring the
+        # shape of the real atomic-write script.
+        command = f"cat > {target}; echo done >/dev/null; true"
+        embedded = BaseEnvironment._embed_stdin_heredoc(command, content)
+
+        proc = subprocess.run(
+            ["bash", "-c", embedded],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, proc.stderr
+        # The full content reaches `cat` (not lost to the trailing `true`), and
+        # '$VAR' is literal because the delimiter is quoted. A heredoc always
+        # appends one trailing newline — inherent to `<<` and pre-existing, not
+        # introduced by the brace-group wrapping.
+        assert target.read_text(encoding="utf-8") == content + "\n"
+
+    def test_heredoc_survives_wrap_command_eval_layer(self, tmp_path):
+        """End-to-end through the production `eval '...'` wrapping.
+
+        _wrap_command embeds the (already heredoc-wrapped) command inside
+        ``eval '<single-quote-escaped>'`` — the more fragile layer for
+        multi-line heredoc payloads. This drives that real path through bash
+        and asserts the atomic-write-shaped script still routes content to a
+        mid-script `cat`.
+        """
+        import subprocess
+
+        env = _TestableEnv(cwd=str(tmp_path))
+        target = tmp_path / "README.md"
+        content = "# Title\n'quoted' & $VAR `x`\nlast"
+        # Mirror the real atomic-write script: `cat` is NOT the last command.
+        script = (
+            f"set -e; t={target}; "
+            'tmp="$(mktemp -p ' + str(tmp_path) + ' .hermes-tmp.XXXXXX)"; '
+            "trap 'rm -f \"$tmp\"' EXIT; "
+            'cat > "$tmp"; mv -f "$tmp" "$t"; trap - EXIT'
+        )
+
+        embedded = env._embed_stdin_heredoc(script, content)
+        wrapped = env._wrap_command(embedded, str(tmp_path))
+
+        proc = subprocess.run(
+            ["bash", "-c", wrapped],
+            stdin=subprocess.DEVNULL,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        assert proc.returncode == 0, proc.stderr
+        assert target.read_text(encoding="utf-8") == content + "\n"
 
 
 class TestInitSessionFailure:
