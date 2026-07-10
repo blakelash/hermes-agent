@@ -1215,6 +1215,12 @@ export const en: Translations = {
     shiftClickHint: 'Shift-click a chat to pin',
     noWorkspace: 'No workspace',
     unassigned: 'Unassigned',
+    newProject: 'New project',
+    newProjectDesc:
+      'Projects group related sessions and give them a shared, persistent working directory.',
+    newProjectPlaceholder: 'Project name…',
+    newProjectCreated: name => `Created project ${name}`,
+    newProjectFailed: 'Could not create project',
     newSessionIn: label => `New session in ${label}`,
     reorderWorkspace: label => `Reorder workspace ${label}`,
     showMoreIn: (count, label) => `Show ${count} more in ${label}`,
