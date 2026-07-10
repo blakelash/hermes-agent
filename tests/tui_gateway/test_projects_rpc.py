@@ -393,3 +393,76 @@ def test_project_set_rejects_live_workspace_session(clean_sessions, rpc_db):
     assert err["code"] == 4009
     assert "session.cwd.set" in err["message"]
     assert rpc_db.get_session("live1")["project"] is None  # untouched
+
+
+# ---------------------------------------------------------------------------
+# Remote-backend project workdir (desktop sessions on Modal work on the volume)
+# ---------------------------------------------------------------------------
+
+
+def test_terminal_cwd_bound_session_remote_uses_volume_path(clean_sessions, monkeypatch):
+    """A project-bound desktop session on a remote backend must work in the
+    project's per-session volume directory, not the global TERMINAL_CWD —
+    otherwise the binding is grouping-only and work lands in an ephemeral /."""
+    monkeypatch.setenv("TERMINAL_ENV", "modal")
+    monkeypatch.setenv("TERMINAL_CWD", "/somewhere/global")
+    projects.create_project("Demo")
+    _seed_session("s1", "key1", "/host/projects/demo/key1", project_slug="demo")
+
+    assert srv._terminal_task_cwd(srv._sessions["s1"]) == "/work/demo/key1"
+
+
+def test_terminal_cwd_honors_configured_volume_root(clean_sessions, monkeypatch):
+    monkeypatch.setenv("TERMINAL_ENV", "modal")
+    monkeypatch.setenv(
+        "TERMINAL_MODAL_VOLUMES", '[{"name": "sci", "mount_path": "/data"}]'
+    )
+    projects.create_project("Demo")
+    _seed_session("s1", "key1", "", project_slug="demo")
+
+    assert srv._terminal_task_cwd(srv._sessions["s1"]) == "/data/demo/key1"
+
+
+def test_terminal_cwd_unbound_remote_falls_back_to_global(clean_sessions, monkeypatch):
+    monkeypatch.setenv("TERMINAL_ENV", "modal")
+    monkeypatch.setenv("TERMINAL_CWD", "/somewhere/global")
+    _seed_session("s1", "key1", "/host/whatever")
+
+    assert srv._terminal_task_cwd(srv._sessions["s1"]) == "/somewhere/global"
+
+
+def test_terminal_cwd_bound_session_local_keeps_host_path(clean_sessions, monkeypatch, tmp_path):
+    monkeypatch.delenv("TERMINAL_ENV", raising=False)
+    host_dir = str(tmp_path / "projects" / "demo" / "key1")
+    _seed_session("s1", "key1", host_dir, project_slug="demo")
+
+    assert srv._terminal_task_cwd(srv._sessions["s1"]) == host_dir
+
+
+def test_register_session_cwd_pins_remote_project_sessions(clean_sessions, monkeypatch):
+    import tools.terminal_tool as tt
+
+    monkeypatch.setenv("TERMINAL_ENV", "modal")
+    projects.create_project("Demo")
+    _seed_session("s1", "key1", "", project_slug="demo")
+    try:
+        srv._register_session_cwd(srv._sessions["s1"])
+        overrides = tt.resolve_task_overrides("key1")
+        assert overrides == {"cwd": "/work/demo/key1", "pin_cwd": True}
+    finally:
+        tt.clear_task_env_overrides("key1")
+
+
+def test_register_session_cwd_local_stays_unpinned(clean_sessions, monkeypatch, tmp_path):
+    import tools.terminal_tool as tt
+
+    monkeypatch.delenv("TERMINAL_ENV", raising=False)
+    host_dir = str(tmp_path / "projects" / "demo" / "key1")
+    _seed_session("s1", "key1", host_dir, project_slug="demo")
+    try:
+        srv._register_session_cwd(srv._sessions["s1"])
+        overrides = tt.resolve_task_overrides("key1")
+        assert overrides.get("cwd") == host_dir
+        assert "pin_cwd" not in overrides
+    finally:
+        tt.clear_task_env_overrides("key1")

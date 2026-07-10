@@ -1267,9 +1267,31 @@ def _terminal_task_cwd(session: dict | None) -> str:
     point at nonsense.  Non-local terminal backends are different: their cwd is
     inside the target environment, so an SSH path like /home/user/workspace may
     not exist on the local macOS host but is still the correct execution cwd.
+
+    Project-bound sessions on a remote backend work in the project's
+    per-session directory on the persistent volume
+    (``<volume_root>/<slug>/<session_key>``) — the session's HOST cwd
+    (``<project_cwd>/<sid>``) is meaningless inside the sandbox, and without
+    this the terminal would fall through to the global TERMINAL_CWD and the
+    binding would be grouping-only. Mirrors the messaging gateway's
+    ``register_session_workdir``.
     """
     backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
     if backend and backend != "local":
+        if session:
+            slug = _session_project_slug(session)
+            if slug:
+                try:
+                    from gateway.project_binding import resolve_volume_root
+                    from tools.projects import project_work_path
+
+                    return project_work_path(
+                        slug,
+                        str(session.get("session_key") or ""),
+                        volume_root=resolve_volume_root(),
+                    )
+                except Exception:
+                    logger.debug("project volume cwd derivation failed", exc_info=True)
         raw = os.environ.get("TERMINAL_CWD", "").strip()
         if not raw:
             try:
@@ -1331,9 +1353,17 @@ def _register_session_cwd(session: dict | None) -> None:
     try:
         from tools.terminal_tool import register_task_env_overrides
 
-        register_task_env_overrides(
-            session["session_key"], {"cwd": _terminal_task_cwd(session)}
-        )
+        cwd = _terminal_task_cwd(session)
+        overrides: dict = {"cwd": cwd}
+        # Project-bound sessions on a remote backend PIN their workdir: the
+        # in-sandbox project path must win over the shared environment's live
+        # cwd tracker (which carries other sessions' ``cd`` state), and the
+        # pinned dir is then created lazily in-env by the terminal layer.
+        # Local sessions keep the unpinned live-tracking semantics.
+        backend = (os.environ.get("TERMINAL_ENV") or "").strip().lower()
+        if backend and backend != "local" and _session_project_slug(session):
+            overrides["pin_cwd"] = True
+        register_task_env_overrides(session["session_key"], overrides)
     except Exception:
         pass
 
