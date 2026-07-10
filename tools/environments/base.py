@@ -472,9 +472,23 @@ class BaseEnvironment(ABC):
 
     @staticmethod
     def _embed_stdin_heredoc(command: str, stdin_data: str) -> str:
-        """Append stdin_data as a shell heredoc to the command string."""
+        """Feed stdin_data to *command* as a shell heredoc.
+
+        The command is wrapped in a brace group so the heredoc becomes stdin
+        for the WHOLE command, not just its last simple command. A bare
+        ``{command} << EOF`` binds the heredoc to whatever command ends the
+        string — for a compound script like the atomic write
+        (``… cat > "$tmp"; mv …; trap - EXIT``) that is ``trap``, not ``cat``,
+        so the content is discarded and ``cat`` blocks on an unfed stdin until
+        the command times out (heredoc-mode backends: Modal, Daytona). The
+        brace group makes the stdin-reading command inside consume the heredoc.
+
+        The delimiter is quoted (``<< 'EOF'``) so the body is literal — no
+        parameter/command expansion — and randomized to avoid colliding with
+        the content.
+        """
         delimiter = f"HERMES_STDIN_{uuid.uuid4().hex[:12]}"
-        return f"{command} << '{delimiter}'\n{stdin_data}\n{delimiter}"
+        return f"{{ {command}\n}} << '{delimiter}'\n{stdin_data}\n{delimiter}"
 
     # ------------------------------------------------------------------
     # Process lifecycle
