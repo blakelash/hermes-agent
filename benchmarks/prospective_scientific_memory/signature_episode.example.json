@@ -1,0 +1,342 @@
+{
+  "id": "psmb_signature",
+  "seed": 0,
+  "entities": [
+    {
+      "id": "z",
+      "type": "compound",
+      "name": "Drug Z",
+      "aliases": []
+    },
+    {
+      "id": "x",
+      "type": "compound",
+      "name": "Drug X",
+      "aliases": []
+    },
+    {
+      "id": "m",
+      "type": "metabolite",
+      "name": "metabolite M (itaconate)",
+      "aliases": [
+        "itaconate"
+      ]
+    },
+    {
+      "id": "a",
+      "type": "pathway",
+      "name": "pathway A (NRF2)",
+      "aliases": [
+        "NRF2"
+      ]
+    },
+    {
+      "id": "y",
+      "type": "pathway",
+      "name": "pathway Y (ferroptosis)",
+      "aliases": [
+        "ferroptosis axis"
+      ]
+    },
+    {
+      "id": "p",
+      "type": "phenotype",
+      "name": "phenotype P (clonogenic survival)",
+      "aliases": [
+        "clonogenic survival"
+      ]
+    },
+    {
+      "id": "cond",
+      "type": "condition",
+      "name": "inflammatory conditions",
+      "aliases": []
+    }
+  ],
+  "edges": [
+    {
+      "id": "e_xp",
+      "subject": "x",
+      "predicate": "reduces",
+      "object": "p",
+      "sign": -1,
+      "condition": null,
+      "confidence": 0.9,
+      "status": "observed",
+      "evidence_id": "v_xp",
+      "known_from": 1,
+      "invalidated_at": null
+    },
+    {
+      "id": "e_yp",
+      "subject": "y",
+      "predicate": "reduces",
+      "object": "p",
+      "sign": -1,
+      "condition": null,
+      "confidence": 0.85,
+      "status": "observed",
+      "evidence_id": "v_yp",
+      "known_from": 2,
+      "invalidated_at": null
+    },
+    {
+      "id": "e_zm",
+      "subject": "z",
+      "predicate": "alters",
+      "object": "m",
+      "sign": 1,
+      "condition": null,
+      "confidence": 0.8,
+      "status": "observed",
+      "evidence_id": "v_zm",
+      "known_from": 4,
+      "invalidated_at": null
+    },
+    {
+      "id": "e_ma",
+      "subject": "m",
+      "predicate": "links",
+      "object": "a",
+      "sign": 1,
+      "condition": null,
+      "confidence": 0.75,
+      "status": "observed",
+      "evidence_id": "v_ma",
+      "known_from": 7,
+      "invalidated_at": null
+    },
+    {
+      "id": "e_ay",
+      "subject": "a",
+      "predicate": "regulates",
+      "object": "y",
+      "sign": 1,
+      "condition": "cond",
+      "confidence": 0.7,
+      "status": "observed",
+      "evidence_id": "v_ay",
+      "known_from": 10,
+      "invalidated_at": null
+    }
+  ],
+  "evidence": [
+    {
+      "id": "v_xp",
+      "source": "art_xp",
+      "date": 1,
+      "method": "clonogenic assay",
+      "result": "positive",
+      "confidence": 0.9,
+      "provenance": ""
+    },
+    {
+      "id": "v_yp",
+      "source": "art_yp",
+      "date": 2,
+      "method": "CRISPR loss-of-function",
+      "result": "positive",
+      "confidence": 0.85,
+      "provenance": ""
+    },
+    {
+      "id": "v_zm",
+      "source": "art_zm",
+      "date": 4,
+      "method": "mass spec",
+      "result": "positive",
+      "confidence": 0.8,
+      "provenance": ""
+    },
+    {
+      "id": "v_ma",
+      "source": "art_ma",
+      "date": 7,
+      "method": "literature",
+      "result": "positive",
+      "confidence": 0.75,
+      "provenance": ""
+    },
+    {
+      "id": "v_ay",
+      "source": "art_ay",
+      "date": 10,
+      "method": "RNA-seq + epistasis",
+      "result": "positive",
+      "confidence": 0.7,
+      "provenance": ""
+    }
+  ],
+  "artifacts": [
+    {
+      "id": "art_xp",
+      "time": 1,
+      "kind": "experiment_report",
+      "text": "Month 1: Drug X reduces phenotype P (clonogenic survival). Baseline result.",
+      "reveals_edges": [
+        "e_xp"
+      ],
+      "reveals_entities": [
+        "x",
+        "p"
+      ],
+      "evidence_ids": [
+        "v_xp"
+      ]
+    },
+    {
+      "id": "art_yp",
+      "time": 2,
+      "kind": "experiment_report",
+      "text": "Month 2: CRISPR loss of pathway Y (ferroptosis) also reduces phenotype P.",
+      "reveals_edges": [
+        "e_yp"
+      ],
+      "reveals_entities": [
+        "y",
+        "p"
+      ],
+      "evidence_ids": [
+        "v_yp"
+      ]
+    },
+    {
+      "id": "noise_3",
+      "time": 3,
+      "kind": "meeting_note",
+      "text": "Month 3: freezer inventory reconciled; nothing notable.",
+      "reveals_edges": [],
+      "reveals_entities": [],
+      "evidence_ids": []
+    },
+    {
+      "id": "art_zm",
+      "time": 4,
+      "kind": "assay_observation",
+      "text": "Month 4: Drug Z unexpectedly alters metabolite M (itaconate) levels.",
+      "reveals_edges": [
+        "e_zm"
+      ],
+      "reveals_entities": [
+        "z",
+        "m"
+      ],
+      "evidence_ids": [
+        "v_zm"
+      ]
+    },
+    {
+      "id": "art_ma",
+      "time": 7,
+      "kind": "paper_summary",
+      "text": "Month 7: New paper links metabolite M (itaconate) to pathway A (NRF2).",
+      "reveals_edges": [
+        "e_ma"
+      ],
+      "reveals_entities": [
+        "m",
+        "a"
+      ],
+      "evidence_ids": [
+        "v_ma"
+      ]
+    },
+    {
+      "id": "noise_8",
+      "time": 8,
+      "kind": "meeting_note",
+      "text": "Month 8: instrument QC passed; grant report submitted.",
+      "reveals_edges": [],
+      "reveals_entities": [],
+      "evidence_ids": []
+    },
+    {
+      "id": "art_ay",
+      "time": 10,
+      "kind": "experiment_report",
+      "text": "Month 10: New experiment shows pathway A (NRF2) regulates pathway Y (ferroptosis) under inflammatory conditions.",
+      "reveals_edges": [
+        "e_ay"
+      ],
+      "reveals_entities": [
+        "a",
+        "y",
+        "cond"
+      ],
+      "evidence_ids": [
+        "v_ay"
+      ]
+    }
+  ],
+  "connections": [
+    {
+      "id": "conn_zx",
+      "cls": "serendipitous_repurposing",
+      "path_edges": [
+        "e_zm",
+        "e_ma",
+        "e_ay",
+        "e_yp"
+      ],
+      "gold_entities": [
+        "z",
+        "m",
+        "a",
+        "y",
+        "p",
+        "x"
+      ],
+      "gold_edges": [
+        "e_zm",
+        "e_ma",
+        "e_ay",
+        "e_yp",
+        "e_xp"
+      ],
+      "maturation": {
+        "birth_time": 1,
+        "solvable_time": 10,
+        "useful_time": 11,
+        "best_window": [
+          11,
+          13
+        ],
+        "expiry_time": null
+      },
+      "value": 1.0,
+      "is_decoy": false,
+      "rationale": "Designing a study around Drug Z should reactivate the old Drug X -> P result via the M -> A -> Y axis: Z alters M, M links A, A regulates Y (inflammatory), Y loss reduces P, and X reduced P. Same phenotype, converging mechanism."
+    }
+  ],
+  "tasks": [
+    {
+      "id": "task_main",
+      "time": 11,
+      "kind": "design_experiment",
+      "prompt": "I'm designing the next study around Drug Z. Its effect on metabolite M looked interesting. What experiment should we run next, and is there anything from earlier in this project we ought to connect it to?",
+      "target_connection_id": "conn_zx",
+      "distractor_connection_ids": [],
+      "explicit": false
+    },
+    {
+      "id": "task_explicit",
+      "time": 12,
+      "kind": "explicit_recall",
+      "prompt": "Diagnostic: which earlier results in this project involved phenotype P (clonogenic survival)? List them.",
+      "target_connection_id": "conn_zx",
+      "distractor_connection_ids": [],
+      "explicit": true
+    }
+  ],
+  "difficulty": {
+    "hop_count": 4,
+    "semantic_distance": 0.7,
+    "time_distance": 9,
+    "entity_ambiguity": 0.5,
+    "conditionality": 0.2,
+    "distractor_density": 0.0,
+    "evidence_uncertainty": 0.21
+  },
+  "schema_version": "0.1.0",
+  "notes": "Hand-authored canonical example (Z->M->A->Y, Y~P, X->P)."
+}
